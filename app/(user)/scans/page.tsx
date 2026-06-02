@@ -6,7 +6,7 @@ import api from "@/lib/api";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 interface ScanHistoryItem {
-  scan_id: string;
+  scanId: string;
   target: string;
   policy: string;
   language: string;
@@ -129,7 +129,7 @@ export default function ScanHistoryPage() {
             ) : (
               history?.map((scan) => (
                 <tr
-                  key={scan.scan_id}
+                  key={scan.scanId}
                   className="hover:bg-slate-50 transition-colors"
                 >
                   <td className="px-6 py-4">
@@ -137,7 +137,7 @@ export default function ScanHistoryPage() {
                       {scan.target}
                     </div>
                     <div className="text-xs text-slate-400 font-mono mt-0.5">
-                      {scan.scan_id}
+                      {scan.scanId}
                     </div>
                   </td>
                   <td className="px-6 py-4">
@@ -158,7 +158,7 @@ export default function ScanHistoryPage() {
                     <div className="flex justify-center gap-2">
                       <button
                         onClick={() =>
-                          router.push(`/dashboard/scan/${scan.scan_id}`)
+                          router.push(`/dashboard/scan/${scan.scanId}`)
                         }
                         className="px-3 py-1.5 bg-blue-50 text-blue-600 text-xs font-bold rounded border border-blue-200 hover:bg-blue-100 transition-colors"
                       >

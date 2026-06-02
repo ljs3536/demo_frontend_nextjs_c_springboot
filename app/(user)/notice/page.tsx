@@ -3,31 +3,22 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import api from "@/lib/api";
-import {
-  ChevronLeft,
-  ChevronRight,
-  MessageSquare,
-  Paperclip,
-  CheckCircle2,
-  Clock,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, MessageSquare } from "lucide-react";
 
+// 💡 1. 백엔드 NoticeDto.ListItem 규격에 맞게 수정
 interface NoticeItem {
   noticeSeq: number;
   title: string;
-  authorName: string;
-  viewCount: number;
+  authorId: string; // 백엔드의 authorId로 매핑
   createdAt: string;
-  updatedAt: string;
 }
 
+// 💡 2. 백엔드 NoticeDto.PageResult 규격에 맞게 수정
 interface PageResponse {
   content: NoticeItem[];
+  totalCount: number; // JPA의 totalElements 대신 우리가 만든 totalCount
   totalPages: number;
-  totalElements: number;
-  number: number;
-  last: boolean;
-  first: boolean;
+  currentPage: number; // JPA의 number 대신 1부터 시작하는 currentPage
 }
 
 export default function NoticesListPage() {
@@ -35,17 +26,24 @@ export default function NoticesListPage() {
   const [notices, setNotices] = useState<NoticeItem[]>([]);
   const [pageInfo, setPageInfo] = useState<PageResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [currentPage, setCurrentPage] = useState(0);
+
+  // 💡 3. MyBatis 기반 백엔드는 보통 1페이지부터 시작하므로 초기값을 1로 설정
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     const fetchNotices = async () => {
       setLoading(true);
       try {
-        const response = await api.get(
-          `/notices?page=${currentPage}&size=10&sort=createdAt,desc`,
-        );
-        setNotices(response.data.content);
-        setPageInfo(response.data);
+        const response = await api.post("/notices/list", {
+          page: currentPage, // 숫자로 바로 전송
+          outputCount: 10,
+        });
+
+        // 💡 4. ApiResponse 객체(data) 안의 실제 PageResult 객체(data.data)에 접근
+        const pageResult = response.data.data;
+
+        setNotices(pageResult.content); // 실제 배열 데이터 세팅
+        setPageInfo(pageResult); // 페이지 메타데이터 세팅
       } catch (error) {
         console.error("문의 목록 로드 실패:", error);
       } finally {
@@ -69,7 +67,6 @@ export default function NoticesListPage() {
             오탐 제보 및 시스템 사용 중 발생한 문제를 해결해 드립니다.
           </p>
         </div>
-        {/* 새 문의 등록은 기존처럼 스캔 대시보드의 우측 드로어 등을 활용하거나 이곳에 버튼을 추가해도 좋습니다. */}
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -77,9 +74,6 @@ export default function NoticesListPage() {
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
               <th className="px-6 py-4 font-semibold text-slate-500">제목</th>
-              <th className="px-6 py-4 font-semibold text-slate-500 text-center">
-                조회수
-              </th>
               <th className="px-6 py-4 font-semibold text-slate-500 text-center">
                 작성자
               </th>
@@ -91,13 +85,13 @@ export default function NoticesListPage() {
           <tbody className="divide-y divide-slate-100">
             {loading ? (
               <tr>
-                <td colSpan={5} className="py-12 text-center text-slate-400">
+                <td colSpan={3} className="py-12 text-center text-slate-400">
                   목록을 불러오는 중입니다...
                 </td>
               </tr>
             ) : notices.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-12 text-center text-slate-400">
+                <td colSpan={3} className="py-12 text-center text-slate-400">
                   등록된 문의 내역이 없습니다.
                 </td>
               </tr>
@@ -109,11 +103,9 @@ export default function NoticesListPage() {
                   className="hover:bg-slate-50/80 cursor-pointer transition-colors"
                 >
                   <td className="px-6 py-4 text-black">{item.title}</td>
-                  <td className="px-6 py-4 font-semibold text-slate-800 text-center">
-                    {item.viewCount}
-                  </td>
-                  <td className="px-6 py-4 text-center text-slate-600 text-center">
-                    {item.authorName}
+                  {/* 백엔드 DTO에 맞게 authorId 출력 */}
+                  <td className="px-6 py-4 text-center text-slate-600">
+                    {item.authorId}
                   </td>
                   <td className="px-6 py-4 text-right text-slate-500 font-mono text-xs">
                     {new Date(item.createdAt).toLocaleDateString()}
@@ -124,34 +116,44 @@ export default function NoticesListPage() {
           </tbody>
         </table>
 
-        {/* 페이지네이션 */}
+        {/* 💡 5. 페이지네이션 렌더링 수정 */}
         {!loading && pageInfo && pageInfo.totalPages > 1 && (
           <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex items-center justify-between">
             <div className="text-xs text-slate-500">
-              총 <span className="font-bold">{pageInfo.totalElements}</span>건
-              중 <span className="font-bold">{pageInfo.number + 1}</span> /{" "}
+              총 <span className="font-bold">{pageInfo.totalCount}</span>건 중{" "}
+              <span className="font-bold">{pageInfo.currentPage}</span> /{" "}
               {pageInfo.totalPages} 페이지
             </div>
             <div className="flex gap-1">
               <button
                 onClick={() => goToPage(currentPage - 1)}
-                disabled={pageInfo.first}
+                disabled={currentPage === 1} // 첫 페이지 처리
                 className="p-1.5 rounded-md border bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              {[...Array(pageInfo.totalPages)].map((_, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => goToPage(idx)}
-                  className={`w-8 h-8 rounded-md text-sm font-semibold transition-colors ${currentPage === idx ? "bg-blue-600 text-white" : "bg-white border text-slate-600 hover:bg-slate-100"}`}
-                >
-                  {idx + 1}
-                </button>
-              ))}
+
+              {/* 배열 인덱스(0부터)를 1부터 시작하는 페이지 번호로 매핑 */}
+              {[...Array(pageInfo.totalPages)].map((_, idx) => {
+                const pageNum = idx + 1;
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => goToPage(pageNum)}
+                    className={`w-8 h-8 rounded-md text-sm font-semibold transition-colors ${
+                      currentPage === pageNum
+                        ? "bg-blue-600 text-white"
+                        : "bg-white border text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
+
               <button
                 onClick={() => goToPage(currentPage + 1)}
-                disabled={pageInfo.last}
+                disabled={currentPage === pageInfo.totalPages} // 마지막 페이지 처리
                 className="p-1.5 rounded-md border bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40"
               >
                 <ChevronRight className="w-4 h-4" />

@@ -14,11 +14,11 @@ import {
 import api from "@/lib/api";
 
 interface AdminUserItem {
-  user_seq: number;
+  userSeq: number;
   id: string;
-  성명: string;
-  소속기관: string;
-  최종로그인일시: string;
+  name: string;
+  organization: string;
+  lastLoginAt: string;
 }
 
 export default function AdminUserManagementPage() {
@@ -38,7 +38,7 @@ export default function AdminUserManagementPage() {
     try {
       const response = await api.post("/members/list");
       console.log(response.data);
-      setUsers(response.data);
+      setUsers(response.data.data.content);
     } catch (error: any) {
       console.error(error);
       alert(
@@ -131,7 +131,7 @@ export default function AdminUserManagementPage() {
               ) : (
                 users.map((user) => (
                   <tr
-                    key={user.user_seq}
+                    key={user.userSeq}
                     onClick={() =>
                       router.push(
                         `/admin/register/${encodeURIComponent(user.id)}`,
@@ -145,18 +145,18 @@ export default function AdminUserManagementPage() {
                     <td className="px-6 py-4 font-mono text-xs text-slate-600">
                       <div className="flex items-center gap-1.5">
                         <Mail className="w-3.5 h-3.5 text-slate-300" />{" "}
-                        {user.성명}
+                        {user.name}
                       </div>
                     </td>
                     <td className="px-6 py-4">
                       <span className="text-[10px] font-black px-2 py-0.5 rounded-full border">
-                        {user.소속기관}
+                        {user.organization}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-xs text-slate-400 font-mono">
                       <div className="flex items-center gap-1">
                         <Calendar className="w-3.5 h-3.5 text-slate-300" />{" "}
-                        {new Date(user.최종로그인일시).toLocaleDateString()}
+                        {new Date(user.lastLoginAt).toLocaleDateString()}
                       </div>
                     </td>
                   </tr>

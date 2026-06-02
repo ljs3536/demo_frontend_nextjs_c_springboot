@@ -31,7 +31,7 @@ export default function LoginPage() {
       localStorage.setItem("status", response.data.data.userStatus);
 
       // 💡 3. 권한(Role)에 따른 동적 페이지 이동 처리
-      const userRole = response.data.role?.toUpperCase();
+      const userRole = response.data.data.role?.toUpperCase();
 
       if (userRole === "ADMIN") {
         // 관리자는 전체 통계 메인 관제 화면으로 이동

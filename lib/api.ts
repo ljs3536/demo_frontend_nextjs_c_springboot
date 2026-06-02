@@ -133,27 +133,4 @@ export async function fetchOpenAiFix(payload: LlmFixRequest): Promise<any> {
   return response.data;
 }
 
-export async function downloadAuthenticatedFile(
-  endpoint: string,
-  filename: string,
-): Promise<void> {
-  const response = await api.post(endpoint, {
-    responseType: "blob",
-  });
-
-  // 2. 받은 데이터를 브라우저가 인식할 수 있는 임시 URL로 만듭니다.
-  const url = window.URL.createObjectURL(new Blob([response.data]));
-
-  // 3. 가상의 <a> 태그를 만들어 클릭 이벤트를 발생시켜 다운로드를 실행합니다.
-  const link = document.createElement("a");
-  link.href = url;
-  link.setAttribute("download", filename || `${filename}.json`);
-  document.body.appendChild(link);
-  link.click();
-
-  // 4. 리소스 정리
-  link.remove();
-  window.URL.revokeObjectURL(url);
-}
-
 export default api;

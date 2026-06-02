@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import api, { downloadAuthenticatedFile } from "@/lib/api";
+import api from "@/lib/api";
 import {
   ShieldAlert,
   AlertTriangle,
@@ -154,13 +154,24 @@ export default function EnhancedScanPage() {
 
   const handleDownloadJsonReport = async (scanId: string) => {
     try {
-      await downloadAuthenticatedFile(
-        `/api/scan/report/${scanId}?format=json`,
-        `scan-report-${scanId}.json`,
+      const response = await api.post(
+        "/scans/report",
+        { scanId: scanId, format: "json", limit: 1000 },
+        { responseType: "blob" }, // 💡 서버가 byte[]를 쏘면 이걸로 한 번에 받음
       );
-    } catch (e) {
-      console.log(
-        e instanceof Error ? e.message : "JSON 리포트 다운로드에 실패했습니다",
+
+      // 💡 서버가 보낸 순수 Blob 데이터를 바로 파일로 만듭니다.
+      const blob = new Blob([response.data], { type: "application/json" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `scan-report-${scanId}.json`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
+    } catch (error) {
+      alert(
+        "다운로드 실패: 파일 형식이 올바르지 않거나 서버에 데이터가 없습니다.",
       );
     }
   };
@@ -194,8 +205,8 @@ export default function EnhancedScanPage() {
           profile: selectedProfile,
         });
       }
-
-      setScanResult(response.data);
+      console.log(response.data.data);
+      setScanResult(response.data.data);
     } catch (error: any) {
       console.error("Scan Request Failed:", error);
       alert("스캔 수행 중 오류가 발생했습니다.");
