@@ -21,11 +21,9 @@ interface ScanHistoryItem {
 // 💡 1. 백엔드의 Page 객체 규격을 담을 인터페이스 추가
 interface PageResponse {
   content: ScanHistoryItem[];
+  totalCount: number; // JPA의 totalElements 대신 우리가 만든 totalCount
   totalPages: number;
-  totalElements: number;
-  number: number; // 현재 페이지 (0부터 시작)
-  last: boolean;
-  first: boolean;
+  currentPage: number; // JPA의 number 대신 1부터 시작하는 currentPage
 }
 
 export default function ScanHistoryPage() {
@@ -37,23 +35,23 @@ export default function ScanHistoryPage() {
   const [loading, setLoading] = useState(true);
 
   // 현재 페이지 상태 (Spring Boot Pageable은 0부터 시작하므로 초기값 0)
-  const [currentPage, setCurrentPage] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     const fetchHistory = async () => {
       setLoading(true);
       try {
-        const response = await api.post(
-          `/scans/list?page=${currentPage}&size=10&sort=startedAt,desc`,
-        );
-
+        const response = await api.post("/scans/list", {
+          page: currentPage, // 숫자로 바로 전송
+          outputCount: 10,
+        });
         console.log("API 응답:", response.data); // 💡 디버깅용: 실제 데이터 구조 확인
 
         // 1. 공통 응답(ApiResponse) 처리가 되어있다면 response.data.data, 아니면 response.data
         const resultData = response.data.data || response.data;
 
         // 2. 💡 history 상태에는 배열이 들어있는 'content'만 빼서 넣습니다!
-        setHistory(resultData || []);
+        setHistory(resultData.content || []);
 
         // 3. pageInfo 상태에는 페이지네이션 객체 통째로 넣습니다.
         setPageInfo(resultData);
@@ -186,47 +184,41 @@ export default function ScanHistoryPage() {
         {!loading && pageInfo && pageInfo.totalPages > 1 && (
           <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex items-center justify-between">
             <div className="text-xs text-slate-500">
-              총{" "}
-              <span className="font-bold text-slate-700">
-                {pageInfo.totalElements}
-              </span>
-              개의 스캔 이력 중
-              <span className="font-bold text-slate-700 ml-1">
-                {pageInfo.number + 1}
-              </span>{" "}
-              / {pageInfo.totalPages} 페이지
+              총 <span className="font-bold">{pageInfo.totalCount}</span>건 중{" "}
+              <span className="font-bold">{pageInfo.currentPage}</span> /{" "}
+              {pageInfo.totalPages} 페이지
             </div>
-
             <div className="flex gap-1">
-              {/* 이전 페이지 버튼 */}
               <button
                 onClick={() => goToPage(currentPage - 1)}
-                disabled={pageInfo.first}
-                className="p-1.5 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                disabled={currentPage === 1} // 첫 페이지 처리
+                className="p-1.5 rounded-md border bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
 
-              {/* 동적 페이지 번호 생성 로직 */}
-              {[...Array(pageInfo.totalPages)].map((_, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => goToPage(idx)}
-                  className={`w-8 h-8 flex items-center justify-center rounded-md text-sm font-semibold transition-colors ${
-                    currentPage === idx
-                      ? "bg-blue-600 text-white shadow-sm"
-                      : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
-                  }`}
-                >
-                  {idx + 1}
-                </button>
-              ))}
+              {/* 배열 인덱스(0부터)를 1부터 시작하는 페이지 번호로 매핑 */}
+              {[...Array(pageInfo.totalPages)].map((_, idx) => {
+                const pageNum = idx + 1;
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => goToPage(pageNum)}
+                    className={`w-8 h-8 rounded-md text-sm font-semibold transition-colors ${
+                      currentPage === pageNum
+                        ? "bg-blue-600 text-white"
+                        : "bg-white border text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
 
-              {/* 다음 페이지 버튼 */}
               <button
                 onClick={() => goToPage(currentPage + 1)}
-                disabled={pageInfo.last}
-                className="p-1.5 rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                disabled={currentPage === pageInfo.totalPages} // 마지막 페이지 처리
+                className="p-1.5 rounded-md border bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>

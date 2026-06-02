@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -21,8 +20,7 @@ import {
   Info,
   Layers,
 } from "lucide-react";
-import {
-  downloadSbomCycloneDx,
+import api, {
   getSbomDetail,
   type SbomDetailResponse,
   type SbomThreat,
@@ -41,15 +39,20 @@ export default function SbomDetailPage() {
   const router = useRouter();
   const id = params.id as string;
 
-  // 상태 관리가 단 하나로 통합됨!
   const [sbomData, setSbomData] = useState<SbomDetailResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const data = await getSbomDetail(id);
-        setSbomData(data);
+        const response = await getSbomDetail(id);
+        // 💡 백엔드 응답이 ApiResponse({success, data}) 로 감싸져 있다면 response.data를,
+        // 평문 객체라면 response 자체를 상태에 저장합니다.
+        // @ts-ignore (타입스크립트 경고 우회용 안전장치)
+        const actualData = response.data ? response.data : response;
+
+        console.log("세팅될 SBOM 데이터:", actualData);
+        setSbomData(actualData);
       } catch (error) {
         console.error("SBOM 데이터 로딩 실패:", error);
       } finally {
@@ -59,11 +62,34 @@ export default function SbomDetailPage() {
     if (id) fetchData();
   }, [id]);
 
-  // 💡 원형 그래프(PieChart)용 통계 데이터 직접 계산
+  const handleDownloadJsonReport = async (sbomId: string) => {
+    try {
+      const response = await api.post(
+        "/sbom/report",
+        { sbomId: sbomId },
+        { responseType: "blob" }, // 💡 서버가 byte[]를 쏘면 이걸로 한 번에 받음
+      );
+
+      // 💡 서버가 보낸 순수 Blob 데이터를 바로 파일로 만듭니다.
+      const blob = new Blob([response.data], { type: "application/json" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `scan-report-${sbomId}.cdx.json`);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
+    } catch (error) {
+      alert(
+        "다운로드 실패: 파일 형식이 올바르지 않거나 서버에 데이터가 없습니다.",
+      );
+    }
+  };
+
+  // 💡 원형 그래프(PieChart)용 통계 데이터 추출
   const pieChartData = useMemo(() => {
     if (!sbomData?.threats) return [];
 
-    // 심각도별 카운트 집계
     const counts: Record<string, number> = {
       CRITICAL: 0,
       HIGH: 0,
@@ -71,6 +97,7 @@ export default function SbomDetailPage() {
       LOW: 0,
       INFO: 0,
     };
+
     sbomData.threats.forEach((threat) => {
       if (counts[threat.severity] !== undefined) {
         counts[threat.severity]++;
@@ -104,12 +131,12 @@ export default function SbomDetailPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto px-2">
+    <div className="space-y-6 max-w-[1600px] mx-auto px-4 py-8">
       {/* 1. 상단 타이틀 네비게이션 바 */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 flex justify-between items-center shadow-sm">
         <div className="flex items-center gap-4">
           <button
-            onClick={() => router.push("/scans")}
+            onClick={() => router.push("/scans")} // 목록 이동 경로 (필요시 수정)
             className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 transition"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -120,23 +147,25 @@ export default function SbomDetailPage() {
               SBOM 공급망 명세서 상세보기
             </h1>
             <p className="text-xs text-slate-400 mt-0.5 font-mono">
-              Target ID: {id} | 데이터 포맷: CycloneDX (JSON)
+              Target ID: {sbomData?.sbomId || id} | 포맷:{" "}
+              {sbomData?.format || "CycloneDX"}
             </p>
           </div>
         </div>
 
         <button
-          onClick={() => downloadSbomCycloneDx(id)}
+          type="button"
+          onClick={() => void handleDownloadJsonReport(sbomData?.sbomId || id)} // 추후 다운로드 함수 연결
           className="flex items-center gap-2 text-xs font-bold bg-slate-900 text-white px-4 py-2.5 rounded-xl hover:bg-slate-800 transition shadow-sm"
         >
           <Download className="w-4 h-4" />
-          CycloneDX 내보내기
+          SBOM 내보내기
         </button>
       </div>
 
       {/* 2. 메인 대시보드 스플릿 그리드 */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* 💻 왼쪽 칼럼 */}
+        {/* 💻 왼쪽 칼럼 (요약 및 차트) */}
         <div className="space-y-6">
           <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-4">
             <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
@@ -158,7 +187,9 @@ export default function SbomDetailPage() {
                   보안 위협 카운트
                 </span>
                 <span className="text-2xl font-black text-red-600 font-mono">
-                  {sbomData?.threats?.length || 0}{" "}
+                  {sbomData?.vulnerabilityCount ||
+                    sbomData?.threats?.length ||
+                    0}{" "}
                   <span className="text-sm font-normal text-red-400">건</span>
                 </span>
               </div>
@@ -168,7 +199,7 @@ export default function SbomDetailPage() {
               <div className="py-2.5 flex justify-between">
                 <span className="text-slate-400">명세서 버전</span>
                 <span className="font-mono font-semibold text-slate-700">
-                  v{sbomData?.specVersion || "1"}
+                  v{sbomData?.specVersion || "1.0"}
                 </span>
               </div>
               <div className="py-2.5 flex justify-between">
@@ -183,8 +214,7 @@ export default function SbomDetailPage() {
           {/* 원형 그래프 카드 */}
           <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col justify-between h-[340px]">
             <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-red-500" /> 취약점 연계 비율
-              현황
+              <ShieldAlert className="w-4 h-4 text-red-500" /> 위협 심각도 비율
             </h3>
 
             {pieChartData.length > 0 ? (
@@ -237,7 +267,7 @@ export default function SbomDetailPage() {
           </div>
         </div>
 
-        {/* 💻 오른쪽 칼럼: 전체 컴포넌트 명세 테이블 리스트 */}
+        {/* 💻 오른쪽 칼럼 (컴포넌트 리스트) */}
         <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col justify-between">
           <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50/50">
             <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
@@ -253,7 +283,6 @@ export default function SbomDetailPage() {
                   <th className="px-6 py-3.5 font-bold">패키지명</th>
                   <th className="px-6 py-3.5 font-bold">버전</th>
                   <th className="px-6 py-3.5 font-bold">생태계(Ecosystem)</th>
-                  <th className="px-6 py-3.5 font-bold">라이선스/유형</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium">
@@ -273,9 +302,6 @@ export default function SbomDetailPage() {
                         {comp.ecosystem || "library"}
                       </span>
                     </td>
-                    <td className="px-6 py-3 text-slate-600 font-semibold">
-                      N/A
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -284,19 +310,19 @@ export default function SbomDetailPage() {
 
           {uniqueComponents.length > 20 && (
             <div className="px-6 py-3.5 text-center text-xs text-slate-400 font-medium border-t border-slate-100 bg-slate-50/30">
-              보안 무결성 검증을 위해 상위 20개 핵심 컴포넌트만 대시보드에
-              스크리닝 중입니다.
+              보안 무결성 검증을 위해 상위 20개 핵심 컴포넌트만 대시보드에 표시
+              중입니다.
             </div>
           )}
         </div>
       </div>
 
-      {/* 3. 하단 영역: 상세 보안 취약점 연계 리스트 피드 */}
+      {/* 3. 하단 영역 (위협 상세 리스트) */}
       {sbomData?.threats && sbomData.threats.length > 0 && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-slate-50/80">
             <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-red-500" />
+              <AlertTriangle className="w-4 h-4 text-red-500" />
               보안 취약점 탐지 상세 내역 ({sbomData.threats.length}건)
             </h2>
           </div>
@@ -319,29 +345,29 @@ export default function SbomDetailPage() {
                         {finding.severity}
                       </span>
                       <h4 className="text-sm font-bold text-slate-900">
-                        {finding.componentName}{" "}
+                        {finding.componentName}
                         <span className="text-slate-400 font-mono font-normal text-xs ml-1">
-                          (v{finding.componentVersion})
+                          (v{finding.componentVersion || "unknown"})
                         </span>
                       </h4>
                     </div>
                     <span className="text-[10px] font-bold text-slate-400 bg-slate-100 border px-2 py-0.5 rounded-md">
-                      {finding.type === "missing_license_metadata"
-                        ? "컴플라이언스 준수 미흡"
-                        : "보안 결함 식별"}
+                      {finding.threatId}
                     </span>
                   </div>
 
                   <div className="pl-2 border-l-2 border-slate-200 space-y-2 text-xs">
                     <p className="text-slate-600 font-medium leading-relaxed">
+                      <span className="font-bold text-slate-800 mr-1">
+                        [{finding.type}]
+                      </span>
                       {finding.message}
                     </p>
 
-                    {/* 조치 권고 사항 가이드 연계 */}
                     {finding.recommendation && (
                       <div className="text-slate-600 bg-blue-50/40 p-3 rounded-xl border border-blue-100/70 mt-1">
                         <span className="text-blue-800 font-bold block mb-0.5 text-[11px]">
-                          💡 안전 패치 권고
+                          💡 조치 권고
                         </span>
                         {finding.recommendation}
                       </div>

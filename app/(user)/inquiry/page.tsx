@@ -23,11 +23,9 @@ interface InquiryItem {
 
 interface PageResponse {
   content: InquiryItem[];
+  totalCount: number; // JPA의 totalElements 대신 우리가 만든 totalCount
   totalPages: number;
-  totalElements: number;
-  number: number;
-  last: boolean;
-  first: boolean;
+  currentPage: number; // JPA의 number 대신 1부터 시작하는 currentPage
 }
 
 export default function InquiryListPage() {
@@ -35,17 +33,18 @@ export default function InquiryListPage() {
   const [inquiries, setInquiries] = useState<InquiryItem[]>([]);
   const [pageInfo, setPageInfo] = useState<PageResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [currentPage, setCurrentPage] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     const fetchInquiries = async () => {
       setLoading(true);
       try {
-        const response = await api.get(
-          `/inquiries?page=${currentPage}&size=10&sort=createdAt,desc`,
-        );
-        setInquiries(response.data.content);
-        setPageInfo(response.data);
+        const response = await api.post("/inquiries/list", {
+          page: currentPage, // 숫자로 바로 전송
+          outputCount: 10,
+        });
+        setInquiries(response.data.data.content);
+        setPageInfo(response.data.data);
       } catch (error) {
         console.error("문의 목록 로드 실패:", error);
       } finally {
@@ -144,30 +143,40 @@ export default function InquiryListPage() {
         {!loading && pageInfo && pageInfo.totalPages > 1 && (
           <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex items-center justify-between">
             <div className="text-xs text-slate-500">
-              총 <span className="font-bold">{pageInfo.totalElements}</span>건
-              중 <span className="font-bold">{pageInfo.number + 1}</span> /{" "}
+              총 <span className="font-bold">{pageInfo.totalCount}</span>건 중{" "}
+              <span className="font-bold">{pageInfo.currentPage}</span> /{" "}
               {pageInfo.totalPages} 페이지
             </div>
             <div className="flex gap-1">
               <button
                 onClick={() => goToPage(currentPage - 1)}
-                disabled={pageInfo.first}
+                disabled={currentPage === 1} // 첫 페이지 처리
                 className="p-1.5 rounded-md border bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              {[...Array(pageInfo.totalPages)].map((_, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => goToPage(idx)}
-                  className={`w-8 h-8 rounded-md text-sm font-semibold transition-colors ${currentPage === idx ? "bg-blue-600 text-white" : "bg-white border text-slate-600 hover:bg-slate-100"}`}
-                >
-                  {idx + 1}
-                </button>
-              ))}
+
+              {/* 배열 인덱스(0부터)를 1부터 시작하는 페이지 번호로 매핑 */}
+              {[...Array(pageInfo.totalPages)].map((_, idx) => {
+                const pageNum = idx + 1;
+                return (
+                  <button
+                    key={pageNum}
+                    onClick={() => goToPage(pageNum)}
+                    className={`w-8 h-8 rounded-md text-sm font-semibold transition-colors ${
+                      currentPage === pageNum
+                        ? "bg-blue-600 text-white"
+                        : "bg-white border text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                );
+              })}
+
               <button
                 onClick={() => goToPage(currentPage + 1)}
-                disabled={pageInfo.last}
+                disabled={currentPage === pageInfo.totalPages} // 마지막 페이지 처리
                 className="p-1.5 rounded-md border bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40"
               >
                 <ChevronRight className="w-4 h-4" />

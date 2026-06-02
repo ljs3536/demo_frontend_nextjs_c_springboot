@@ -24,7 +24,6 @@ api.interceptors.request.use((config) => {
 
 // 1. 개별 취약점/위협(Finding) 인터페이스
 export interface SbomThreat {
-  threatSeq: number;
   threatId: string;
   type: string;
   severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "INFO";
@@ -53,7 +52,9 @@ export interface SbomDetailResponse {
 export async function getSbomDetail(
   sbomId: string,
 ): Promise<SbomDetailResponse> {
-  const response = await api.get(`/sboms/${sbomId}`);
+  const response = await api.post("/sbom/detail", {
+    sbomId: `${sbomId}`,
+  });
   return response.data;
 }
 
