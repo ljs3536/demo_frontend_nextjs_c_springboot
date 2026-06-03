@@ -61,7 +61,7 @@ export default function EnhancedScanPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ScanTabMode>("file");
 
-  const [selectedProfile, setSelectedProfile] = useState("security_core");
+  const [selectedLanguage, setSelectedLanguage] = useState("python.py");
   const [useSbom, setUseSbom] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
 
@@ -190,7 +190,7 @@ export default function EnhancedScanPage() {
           return alert("스캔할 파일을 선택해주세요.");
         const formData = new FormData();
         selectedFiles.forEach((file) => formData.append("files", file));
-        formData.append("profile", selectedProfile);
+        formData.append("language", selectedLanguage);
         formData.append("generate_sbom", String(useSbom));
 
         response = await api.post("/scans/run-upload", formData, {
@@ -202,7 +202,7 @@ export default function EnhancedScanPage() {
         response = await api.post("/scans/run-code", {
           code: pastedCode,
           filename: virtualFilename || "snippet.py",
-          profile: selectedProfile,
+          language: selectedLanguage,
         });
       }
       console.log(response.data.data);
@@ -300,7 +300,7 @@ export default function EnhancedScanPage() {
                   value={virtualFilename}
                   onChange={(e) => setVirtualFilename(e.target.value)}
                   placeholder="snippet.py"
-                  className="w-full px-4 py-2 text-sm border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 font-mono"
+                  className="w-full px-4 py-2 text-black text-sm border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 font-mono"
                 />
               </div>
               <div>
@@ -321,15 +321,15 @@ export default function EnhancedScanPage() {
             <div className="flex gap-6 items-center">
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                  스캔 프로파일
+                  스캔 언어
                 </label>
                 <select
-                  value={selectedProfile}
-                  onChange={(e) => setSelectedProfile(e.target.value)}
-                  className="text-xs bg-white border border-slate-300 rounded px-2.5 py-1.5 font-medium outline-none"
+                  value={selectedLanguage}
+                  onChange={(e) => setSelectedLanguage(e.target.value)}
+                  className="text-xs bg-white border text-black border-slate-300 rounded px-2.5 py-1.5 font-medium outline-none"
                 >
-                  <option value="security_core">Core (CWE Top 25)</option>
-                  <option value="full">Full Scan</option>
+                  <option value="python">Python</option>
+                  <option value="java">Java</option>
                 </select>
               </div>
               {activeTab === "file" && (
