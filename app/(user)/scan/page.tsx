@@ -42,7 +42,7 @@ interface ScanResult {
     type_ko: string;
     severity_ko: string;
     file: string;
-    confidence: number; // 💡 보통 숫자로 오므로 number로 가정 (혹은 string이면 맞춰서)
+    confidence: number;
     code_snippet: string;
     line: number;
     column: number;
@@ -61,7 +61,7 @@ export default function EnhancedScanPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ScanTabMode>("file");
 
-  const [selectedLanguage, setSelectedLanguage] = useState("python.py");
+  const [selectedProfile, setSelectedProfile] = useState("security_core");
   const [useSbom, setUseSbom] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
 
@@ -73,9 +73,11 @@ export default function EnhancedScanPage() {
     "vulnerable_snippet.py",
   );
 
+  // 💡 [추가] 코드 직접 입력 시 언어 선택 상태
+  const [selectedLanguage, setSelectedLanguage] = useState("python");
+
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
 
-  // 아코디언 열림/닫힘 상태를 관리하기 위한 State 추가
   const [expandedIssueId, setExpandedIssueId] = useState<string | null>(null);
 
   const [isInquiryDrawerOpen, setIsInquiryDrawerOpen] = useState(false);
@@ -84,7 +86,6 @@ export default function EnhancedScanPage() {
   const [inquiryFile, setInquiryFile] = useState<File | null>(null);
   const [isSubmittingInquiry, setIsSubmittingInquiry] = useState(false);
 
-  // 💡 [추가] 문의 전송 핸들러
   const handleSubmitInquiry = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inquiryTitle.trim() || !inquiryContent.trim()) {
@@ -96,7 +97,6 @@ export default function EnhancedScanPage() {
       const formData = new FormData();
       formData.append("title", inquiryTitle);
       formData.append("content", inquiryContent);
-      // 현재 보고 있는 스캔 결과의 ID를 자동으로 매핑
       formData.append("scanId", scanResult?.scan_id || "");
 
       if (inquiryFile) {
@@ -109,7 +109,6 @@ export default function EnhancedScanPage() {
 
       alert("오탐/장애 문의가 성공적으로 접수되었습니다.");
 
-      // 폼 초기화 및 드로어 닫기
       setInquiryTitle("");
       setInquiryContent("");
       setInquiryFile(null);
@@ -157,10 +156,9 @@ export default function EnhancedScanPage() {
       const response = await api.post(
         "/scans/report",
         { scanId: scanId, format: "json", limit: 1000 },
-        { responseType: "blob" }, // 💡 서버가 byte[]를 쏘면 이걸로 한 번에 받음
+        { responseType: "blob" },
       );
 
-      // 💡 서버가 보낸 순수 Blob 데이터를 바로 파일로 만듭니다.
       const blob = new Blob([response.data], { type: "application/json" });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -180,7 +178,7 @@ export default function EnhancedScanPage() {
     e.preventDefault();
     setIsScanning(true);
     setScanResult(null);
-    setExpandedIssueId(null); // 스캔 시 아코디언 초기화
+    setExpandedIssueId(null);
 
     try {
       let response;
@@ -190,7 +188,7 @@ export default function EnhancedScanPage() {
           return alert("스캔할 파일을 선택해주세요.");
         const formData = new FormData();
         selectedFiles.forEach((file) => formData.append("files", file));
-        formData.append("language", selectedLanguage);
+        formData.append("profile", selectedProfile);
         formData.append("generate_sbom", String(useSbom));
 
         response = await api.post("/scans/run-upload", formData, {
@@ -199,9 +197,12 @@ export default function EnhancedScanPage() {
       } else {
         if (!pastedCode.trim())
           return alert("분석할 코드 내용을 입력해주세요.");
+
+        // 💡 [수정] 코드 스캔 시 language 데이터 추가 전송
         response = await api.post("/scans/run-code", {
           code: pastedCode,
           filename: virtualFilename || "snippet.py",
+          profile: selectedProfile,
           language: selectedLanguage,
         });
       }
@@ -224,7 +225,6 @@ export default function EnhancedScanPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
-      {/* --- 기존 스캔 설정 및 입력 폼 영역 (생략 없이 유지) --- */}
       <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-8">
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
@@ -291,18 +291,40 @@ export default function EnhancedScanPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-500 tracking-wider mb-2">
-                  가상 파일명 설정
-                </label>
-                <input
-                  type="text"
-                  value={virtualFilename}
-                  onChange={(e) => setVirtualFilename(e.target.value)}
-                  placeholder="snippet.py"
-                  className="w-full px-4 py-2 text-black text-sm border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 font-mono"
-                />
+              {/* 💡 [수정] 가상 파일명과 언어 선택을 나란히 배치 */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 tracking-wider mb-2">
+                    가상 파일명 설정
+                  </label>
+                  <input
+                    type="text"
+                    value={virtualFilename}
+                    onChange={(e) => setVirtualFilename(e.target.value)}
+                    placeholder="snippet.py"
+                    className="w-full px-4 py-2.5 text-black text-sm border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-blue-100 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-500 tracking-wider mb-2">
+                    언어 선택
+                  </label>
+                  <select
+                    value={selectedLanguage}
+                    onChange={(e) => setSelectedLanguage(e.target.value)}
+                    className="w-full px-4 py-2.5 text-sm border border-slate-300 rounded-lg outline-none focus:ring-2 text-black focus:ring-blue-100 bg-white"
+                  >
+                    <option value="python">Python</option>
+                    <option value="java">Java</option>
+                    <option value="javascript">JavaScript</option>
+                    <option value="typescript">TypeScript</option>
+                    <option value="go">Go</option>
+                    <option value="cpp">C/C++</option>
+                    <option value="php">PHP</option>
+                  </select>
+                </div>
               </div>
+
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-500 tracking-wider mb-2">
                   소스코드
@@ -321,15 +343,15 @@ export default function EnhancedScanPage() {
             <div className="flex gap-6 items-center">
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">
-                  스캔 언어
+                  스캔 프로파일
                 </label>
                 <select
-                  value={selectedLanguage}
-                  onChange={(e) => setSelectedLanguage(e.target.value)}
-                  className="text-xs bg-white border text-black border-slate-300 rounded px-2.5 py-1.5 font-medium outline-none"
+                  value={selectedProfile}
+                  onChange={(e) => setSelectedProfile(e.target.value)}
+                  className="text-xs text-black bg-white border border-slate-300 rounded px-2.5 py-1.5 font-medium outline-none"
                 >
-                  <option value="python">Python</option>
-                  <option value="java">Java</option>
+                  <option value="security_core">Core (CWE Top 25)</option>
+                  <option value="full">Full Scan</option>
                 </select>
               </div>
               {activeTab === "file" && (
@@ -465,7 +487,6 @@ export default function EnhancedScanPage() {
             </div>
           </div>
 
-          {/* 💡 2. 확장된 아코디언 스타일 취약점 리스트 렌더링 */}
           <div className="p-0">
             {scanResult.issues?.length > 0 ? (
               <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
@@ -474,7 +495,6 @@ export default function EnhancedScanPage() {
 
                   return (
                     <div key={issue.id} className="flex flex-col">
-                      {/* --- 리스트 항목 (항상 노출되는 요약부) --- */}
                       <div
                         onClick={() => toggleIssue(issue.id)}
                         className={`p-5 hover:bg-slate-50 flex gap-4 items-start cursor-pointer transition-colors ${isExpanded ? "bg-slate-50" : ""}`}
@@ -489,7 +509,6 @@ export default function EnhancedScanPage() {
                             <h4 className="font-bold text-slate-900 text-sm">
                               {issue.type_ko}
                             </h4>
-                            {/* CWE/OWASP 미니 뱃지 추가 */}
                             {issue.cwe && (
                               <span className="px-1.5 py-0.5 text-[10px] font-mono bg-slate-100 text-slate-500 border border-slate-200 rounded">
                                 {issue.cwe}
@@ -517,11 +536,9 @@ export default function EnhancedScanPage() {
                         </div>
                       </div>
 
-                      {/* --- 확장 패널 (클릭 시 노출되는 상세 데이터) --- */}
                       {isExpanded && (
                         <div className="px-5 pb-6 pt-2 bg-slate-50 border-t border-slate-100">
                           <div className="grid grid-cols-2 gap-6">
-                            {/* 왼쪽: 세부 설명 및 원인 */}
                             <div className="space-y-4">
                               <div>
                                 <h5 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5 mb-1.5">
@@ -572,7 +589,6 @@ export default function EnhancedScanPage() {
                               </div>
                             </div>
 
-                            {/* 오른쪽: 코드 증거 및 패치 코드 */}
                             <div className="space-y-4">
                               <div>
                                 <h5 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5 mb-1.5">
@@ -616,18 +632,15 @@ export default function EnhancedScanPage() {
           </div>
         </div>
       )}
-      {/* 💡 [추가] 오른쪽 슬라이드 드로어 (오프캔버스) */}
+
       {isInquiryDrawerOpen && (
         <div className="fixed inset-0 z-50 flex justify-end">
-          {/* 1. 반투명 배경 (클릭 시 닫힘) */}
           <div
             className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px] transition-opacity animate-in fade-in duration-200"
             onClick={() => setIsInquiryDrawerOpen(false)}
           />
 
-          {/* 2. 우측 슬라이드 패널 */}
           <div className="relative w-[450px] bg-white h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-300 border-l border-slate-200">
-            {/* 드로어 헤더 */}
             <div className="flex justify-between items-center p-6 border-b border-slate-100 bg-slate-50/50">
               <div>
                 <h3 className="text-lg font-extrabold text-slate-800 flex items-center gap-2">
@@ -646,12 +659,10 @@ export default function EnhancedScanPage() {
               </button>
             </div>
 
-            {/* 드로어 바디 (폼) */}
             <form
               onSubmit={handleSubmitInquiry}
               className="flex-1 flex flex-col p-6 overflow-y-auto space-y-5"
             >
-              {/* 자동 연동 정보 (읽기 전용) */}
               <div className="bg-blue-50/50 border border-blue-100 p-4 rounded-xl space-y-1">
                 <label className="text-[10px] font-bold text-blue-500 uppercase tracking-wider">
                   연동된 스캔 ID
@@ -717,7 +728,6 @@ export default function EnhancedScanPage() {
                 </div>
               </div>
 
-              {/* 드로어 풋터 (제출 버튼) */}
               <div className="pt-6 mt-auto border-t border-slate-100">
                 <button
                   type="submit"

@@ -86,51 +86,43 @@ export async function downloadSbomCycloneDx(
   window.URL.revokeObjectURL(url);
 }
 
-export interface LlmExplainRequest {
+// 통합된 공통 DTO 인터페이스
+export interface CodeSnippetRequest {
+  issue_seq: number;
   vulnerability_type: string;
-  cwe_id?: string | null;
+  cwe_id: string;
   severity: string;
   file_path: string;
   line_number: number;
-  code_snippet?: string | null;
-  data_flow?: string | null;
-  framework?: string | null;
-  language?: string | null;
-  include_remediation?: boolean;
+  code_snippet: string;
+  framework: string;
+  language: string;
 }
 
+// 4개의 API 모두 동일한 Payload 타입 사용
 export async function fetchAiExplanation(
-  payload: LlmExplainRequest,
+  payload: CodeSnippetRequest,
 ): Promise<any> {
-  const response = await api.post("/llm/explain", payload);
+  const response = await api.post("/analysis/llm-explain", payload);
   return response.data;
 }
 
-export interface LlmFixRequest {
-  vulnerability_type: string;
-  cwe_id?: string | null;
-  code_snippet?: string | null;
-  language?: string | null;
-  preserve_functionality?: boolean;
-}
-
-// AI 패치 코드 가져오기 API 추가
-export async function fetchAiFix(payload: LlmFixRequest): Promise<any> {
-  const response = await api.post("/llm/fix", payload);
+export async function fetchAiFix(payload: CodeSnippetRequest): Promise<any> {
+  const response = await api.post("/analysis/llm-fix", payload);
   return response.data;
 }
 
-// OpenAI 기반 취약점 진단 설명 요청
 export async function fetchOpenAiExplanation(
-  payload: LlmExplainRequest,
+  payload: CodeSnippetRequest,
 ): Promise<any> {
-  const response = await api.post("/ai/explain", payload);
+  const response = await api.post("/analysis/ai-explanation", payload);
   return response.data;
 }
 
-// OpenAI 기반 시큐어 코딩 패치 요청
-export async function fetchOpenAiFix(payload: LlmFixRequest): Promise<any> {
-  const response = await api.post("/ai/fix", payload);
+export async function fetchOpenAiFix(
+  payload: CodeSnippetRequest,
+): Promise<any> {
+  const response = await api.post("/analysis/fix-suggestions", payload);
   return response.data;
 }
 

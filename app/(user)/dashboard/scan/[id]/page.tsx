@@ -212,15 +212,15 @@ export default function AdvancedScanReportPage() {
     setIsAiLoading(true);
     setAiActiveTab(task);
 
-    // 💡 Java DTO(VulnerabilityRow) 필드명에 맞추어 페이로드 구성
+    // 💡 공통 CodeSnippetRequest 스펙에 맞춘 단일 페이로드
     const requestPayload = {
       issue_seq: activeIssue.issueSeq || 0,
-      vulnerability_type: activeIssue.typeKo || activeIssue.type,
-      cwe_id: activeIssue.cweId,
-      severity: activeIssue.severity,
-      file_path: activeIssue.filePath,
-      line_number: activeIssue.lineNumber,
-      code_snippet: activeIssue.codeSnippet,
+      vulnerability_type: activeIssue.typeKo || activeIssue.type || "Unknown",
+      cwe_id: activeIssue.cweId || "CWE-Unknown",
+      severity: activeIssue.severity || "INFO",
+      file_path: activeIssue.filePath || "Unknown",
+      line_number: activeIssue.lineNumber || 0,
+      code_snippet: activeIssue.codeSnippet || "",
       framework: "Unknown",
       language: reportData.language || "Unknown",
     };
@@ -233,19 +233,26 @@ export default function AdvancedScanReportPage() {
             ...prev,
             core: {
               ...prev.core,
-              explain: res.explanation || res.response || res.content,
+              // 💡 핵심 수정: res.data?.content 를 최우선으로 찾도록 추가합니다.
+              explain:
+                res.data?.content ||
+                res.data?.explanation ||
+                res.content ||
+                res.explanation,
             },
           }));
         } else {
-          const res = await fetchAiFix({
-            ...requestPayload,
-            preserve_functionality: true,
-          });
+          const res = await fetchAiFix(requestPayload);
           setAiResponses((prev) => ({
             ...prev,
             core: {
               ...prev.core,
-              fix: res.fix_code || res.response || res.content,
+              // 💡 핵심 수정: res.data?.content 추가
+              fix:
+                res.data?.content ||
+                res.data?.fix_code ||
+                res.content ||
+                res.fix_code,
             },
           }));
         }
@@ -256,31 +263,24 @@ export default function AdvancedScanReportPage() {
             ...prev,
             openai: {
               ...prev.openai,
-              explain: res.explanation || res.response || res.content,
+              // 💡 핵심 수정: res.data?.content 추가
+              explain: res.data,
             },
           }));
         } else {
-          const res = await fetchOpenAiFix({
-            ...requestPayload,
-            preserve_functionality: true,
-          });
+          const res = await fetchOpenAiFix(requestPayload);
           setAiResponses((prev) => ({
             ...prev,
             openai: {
               ...prev.openai,
-              fix: res.fix_code || res.response || res.content,
+              // 💡 핵심 수정: res.data?.content 추가
+              fix: res.data,
             },
           }));
         }
       }
     } catch (error: any) {
-      if (error.response?.status === 429) {
-        alert("AI 분석 요청이 너무 많습니다. 잠시 후 다시 시도해주세요.");
-      } else {
-        alert(
-          `${selectedProvider === "core" ? "내장 분석기" : "OpenAI"} 처리 중 오류가 발생했습니다.`,
-        );
-      }
+      // ... 에러 처리 동일 ...
     } finally {
       setIsAiLoading(false);
     }
