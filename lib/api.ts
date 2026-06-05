@@ -86,44 +86,4 @@ export async function downloadSbomCycloneDx(
   window.URL.revokeObjectURL(url);
 }
 
-// 통합된 공통 DTO 인터페이스
-export interface CodeSnippetRequest {
-  issue_seq: number;
-  vulnerability_type: string;
-  cwe_id: string;
-  severity: string;
-  file_path: string;
-  line_number: number;
-  code_snippet: string;
-  framework: string;
-  language: string;
-}
-
-// 4개의 API 모두 동일한 Payload 타입 사용
-export async function fetchAiExplanation(
-  payload: CodeSnippetRequest,
-): Promise<any> {
-  const response = await api.post("/analysis/llm-explain", payload);
-  return response.data;
-}
-
-export async function fetchAiFix(payload: CodeSnippetRequest): Promise<any> {
-  const response = await api.post("/analysis/llm-fix", payload);
-  return response.data;
-}
-
-export async function fetchOpenAiExplanation(
-  payload: CodeSnippetRequest,
-): Promise<any> {
-  const response = await api.post("/analysis/ai-explanation", payload);
-  return response.data;
-}
-
-export async function fetchOpenAiFix(
-  payload: CodeSnippetRequest,
-): Promise<any> {
-  const response = await api.post("/analysis/fix-suggestions", payload);
-  return response.data;
-}
-
 export default api;
