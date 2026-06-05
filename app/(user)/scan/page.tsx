@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import api from "@/lib/api";
 import {
@@ -20,6 +20,7 @@ import {
   X,
   Paperclip,
   Send,
+  Search,
 } from "lucide-react";
 
 type ScanTabMode = "file" | "code";
@@ -85,6 +86,42 @@ export default function EnhancedScanPage() {
   const [inquiryContent, setInquiryContent] = useState("");
   const [inquiryFile, setInquiryFile] = useState<File | null>(null);
   const [isSubmittingInquiry, setIsSubmittingInquiry] = useState(false);
+
+  // 💡 [추가] 필터 및 검색 상태
+  const [filterFile, setFilterFile] = useState("ALL");
+  const [filterSeverity, setFilterSeverity] = useState("ALL");
+  const [filterAnalyzer, setFilterAnalyzer] = useState("ALL");
+  const [searchKeyword, setSearchKeyword] = useState("");
+
+  // 💡 [추가] 필터 옵션 동적 추출 (셀렉트 박스용)
+  const filterOptions = useMemo(() => {
+    if (!scanResult?.issues) return { files: [], analyzers: [] };
+    const files = Array.from(
+      new Set(scanResult.issues.map((i) => i.file)),
+    ).filter(Boolean);
+    const analyzers = Array.from(
+      new Set(scanResult.issues.map((i) => i.analyzer)),
+    ).filter(Boolean);
+    return { files, analyzers };
+  }, [scanResult]);
+
+  // 💡 [추가] 다중 조건 필터링 적용된 이슈 리스트
+  const filteredIssues = useMemo(() => {
+    if (!scanResult?.issues) return [];
+    return scanResult.issues.filter((issue) => {
+      const matchFile = filterFile === "ALL" || issue.file === filterFile;
+      const matchSev =
+        filterSeverity === "ALL" || issue.severity_ko === filterSeverity;
+      const matchAnalyzer =
+        filterAnalyzer === "ALL" || issue.analyzer === filterAnalyzer;
+      const matchSearch =
+        searchKeyword === "" ||
+        issue.type_ko?.toLowerCase().includes(searchKeyword.toLowerCase()) ||
+        issue.message?.toLowerCase().includes(searchKeyword.toLowerCase());
+
+      return matchFile && matchSev && matchAnalyzer && matchSearch;
+    });
+  }, [scanResult, filterFile, filterSeverity, filterAnalyzer, searchKeyword]);
 
   const handleSubmitInquiry = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -217,14 +254,14 @@ export default function EnhancedScanPage() {
   };
 
   const severityColors: Record<string, string> = {
-    CRITICAL: "bg-red-100 text-red-700 border-red-200",
-    HIGH: "bg-orange-100 text-orange-700 border-orange-200",
-    MEDIUM: "bg-amber-100 text-amber-700 border-amber-200",
-    LOW: "bg-blue-100 text-blue-700 border-blue-200",
+    심각: "bg-red-200 text-red-700 border-red-200",
+    높음: "bg-orange-200 text-orange-700 border-orange-200",
+    중간: "bg-amber-200 text-amber-700 border-amber-200",
+    낮음: "bg-blue-200 text-blue-700 border-blue-200",
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
+    <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
       <div className="bg-white rounded-2xl shadow-md border border-slate-100 p-8">
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
@@ -391,244 +428,348 @@ export default function EnhancedScanPage() {
       </div>
 
       {scanResult && (
-        <div className="bg-white rounded-2xl shadow-md border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="bg-slate-900 text-white p-6 flex items-center justify-between">
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+          {/* 상단 헤더 영역 */}
+          <div className="bg-white border-b border-slate-200 p-6 flex items-center justify-between">
             <div>
-              <h2 className="text-xl font-bold flex items-center gap-2">
-                <CheckCircle className="w-6 h-6 text-emerald-400" /> 스캔 분석
+              <h2 className="text-xl font-extrabold text-slate-900 flex items-center gap-2">
+                <CheckCircle className="w-6 h-6 text-emerald-500" /> 스캔 분석
                 완료
               </h2>
-              <p className="text-slate-400 text-sm mt-1 font-mono">
+              <p className="text-slate-500 text-sm mt-1.5 font-mono bg-slate-50 inline-block px-2.5 py-1 rounded-md border border-slate-100">
                 ID: {scanResult.scan_id} | Target: {scanResult.target}
               </p>
             </div>
-            <div className="flex gap-2">
+
+            <div className="flex items-center gap-2">
               <button
                 onClick={() => router.push(`/scans/${scanResult.scan_id}`)}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold transition-all shadow-sm flex items-center gap-2"
               >
-                상세 리포트 보기
+                상세 리포트
               </button>
               {scanResult.sbom_id && (
                 <button
                   onClick={() => router.push(`/sboms/${scanResult.sbom_id}`)}
-                  className="px-4 py-2 bg-emerald-900 text-emerald-300 hover:bg-emerald-800 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
+                  className="px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 rounded-lg text-sm font-bold transition-all flex items-center gap-2"
                 >
-                  📦 SBOM 확인
+                  SBOM 확인
                 </button>
               )}
 
-              <div className="pl-4 border-l border-slate-200">
+              <div className="pl-4 ml-2 border-l border-slate-200 flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={() => setIsInquiryDrawerOpen(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-bold hover:bg-slate-800 transition-colors shadow-sm"
+                  className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-sm font-bold transition-all shadow-sm"
                 >
-                  <MessageSquarePlus className="w-4 h-4" />
-                  오탐 및 장애 문의
+                  <MessageSquarePlus className="w-4 h-4" /> 문의
                 </button>
                 <button
                   type="button"
                   onClick={() =>
                     void handleDownloadJsonReport(scanResult.scan_id)
                   }
-                  className="flex items-center gap-2 px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white text-sm font-medium rounded-lg transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 rounded-lg text-sm font-bold transition-all shadow-sm"
                 >
-                  <svg
-                    className="w-4 h-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                    />
-                  </svg>
-                  JSON
+                  <Download className="w-4 h-4" /> JSON
                 </button>
               </div>
             </div>
           </div>
-
-          <div className="grid grid-cols-4 gap-px bg-slate-200 border-b border-slate-200">
-            <div key="Critical" className="bg-white p-4 text-center">
-              <div className="text-xs font-bold text-slate-500 uppercase">
-                CRITICAL
+          {/* 3. 통계 영역: 띄어쓰기(gap)와 둥근 모서리(rounded-xl)를 적용한 개별 카드 스타일 */}
+          <div className="p-6 bg-slate-50/50 border-b border-slate-200">
+            <div className="grid grid-cols-5 gap-5">
+              <div
+                key="All"
+                className="bg-white border border-red-100 shadow-sm rounded-xl p-5 text-center"
+              >
+                <div className="text-xs font-bold uppercase tracking-wider mb-2 text-black">
+                  전체
+                </div>
+                <div className="text-4xl font-black text-black">
+                  {scanResult.summary?.CRITICAL +
+                    scanResult.summary?.HIGH +
+                    scanResult.summary?.MEDIUM +
+                    scanResult.summary?.LOW}
+                </div>
               </div>
-              <div className="text-3xl font-black text-red-600">
-                {scanResult.summary?.CRITICAL}
+              <div
+                key="Critical"
+                className="bg-white border border-red-100 shadow-sm rounded-xl p-5 text-center"
+              >
+                <div className="text-xs font-bold text-red-600 uppercase tracking-wider mb-2">
+                  심각
+                </div>
+                <div className="text-4xl font-black text-red-600">
+                  {scanResult.summary?.CRITICAL}
+                </div>
               </div>
-            </div>
-            <div key="HIGH" className="bg-white p-4 text-center">
-              <div className="text-xs font-bold text-slate-500 uppercase">
-                HIGH
+              <div
+                key="HIGH"
+                className="bg-white border border-orange-100 shadow-sm rounded-xl p-5 text-center"
+              >
+                <div className="text-xs font-bold text-orange-500 uppercase tracking-wider mb-2">
+                  높음
+                </div>
+                <div className="text-4xl font-black text-orange-500">
+                  {scanResult.summary?.HIGH}
+                </div>
               </div>
-              <div className="text-3xl font-black text-orange-500">
-                {scanResult.summary?.HIGH}
+              <div
+                key="MEDIUM"
+                className="bg-white border border-amber-100 shadow-sm rounded-xl p-5 text-center"
+              >
+                <div className="text-xs font-bold text-amber-500 uppercase tracking-wider mb-2">
+                  보통
+                </div>
+                <div className="text-4xl font-black text-amber-500">
+                  {scanResult.summary?.MEDIUM}
+                </div>
               </div>
-            </div>
-            <div key="MEDIUM" className="bg-white p-4 text-center">
-              <div className="text-xs font-bold text-slate-500 uppercase">
-                MEDIUM
-              </div>
-              <div className="text-3xl font-black text-amber-500">
-                {scanResult.summary?.MEDIUM}
-              </div>
-            </div>
-            <div key="LOW" className="bg-white p-4 text-center">
-              <div className="text-xs font-bold text-slate-500 uppercase">
-                LOW
-              </div>
-              <div className="text-3xl font-black text-blue-500">
-                {scanResult.summary?.LOW}
+              <div
+                key="LOW"
+                className="bg-white border border-blue-100 shadow-sm rounded-xl p-5 text-center"
+              >
+                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                  낮음
+                </div>
+                <div className="text-4xl font-black text-blue-500">
+                  {scanResult.summary?.LOW}
+                </div>
               </div>
             </div>
           </div>
+          {/* 💡 1. 통합 컨트롤 바 (필터 & 검색) */}
+          <div className="bg-slate-50 p-4 border-b border-slate-200 flex flex-wrap gap-4 items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-bold text-slate-700 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm">
+                전체{" "}
+                <span className="text-blue-600">{filteredIssues.length}</span> /{" "}
+                {scanResult.issues?.length || 0}건
+              </span>
 
-          <div className="p-0">
-            {scanResult.issues?.length > 0 ? (
-              <div className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
-                {scanResult.issues?.map((issue) => {
-                  const isExpanded = expandedIssueId === issue.id;
+              <select
+                value={filterFile}
+                onChange={(e) => setFilterFile(e.target.value)}
+                className="text-sm border border-slate-300 rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 bg-white"
+              >
+                <option value="ALL">📄 전체 파일</option>
+                {filterOptions.files.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
 
-                  return (
-                    <div key={issue.id} className="flex flex-col">
-                      <div
-                        onClick={() => toggleIssue(issue.id)}
-                        className={`p-5 hover:bg-slate-50 flex gap-4 items-start cursor-pointer transition-colors ${isExpanded ? "bg-slate-50" : ""}`}
-                      >
-                        <div
-                          className={`px-2.5 py-1 rounded text-xs font-bold border ${severityColors[issue.severity_ko] || "bg-slate-100 text-slate-700"}`}
+              <select
+                value={filterSeverity}
+                onChange={(e) => setFilterSeverity(e.target.value)}
+                className="text-sm border border-slate-300 rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 bg-white"
+              >
+                <option value="ALL">전체 심각도</option>
+                <option value="심각">심각</option>
+                <option value="높음">높음</option>
+                <option value="보통">보통</option>
+                <option value="낮음">낮음</option>
+              </select>
+
+              <select
+                value={filterAnalyzer}
+                onChange={(e) => setFilterAnalyzer(e.target.value)}
+                className="text-sm border border-slate-300 rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 bg-white"
+              >
+                <option value="ALL">전체 분석기</option>
+                {filterOptions.analyzers.map((a) => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="취약점명, 설명 검색..."
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
+                className="pl-9 pr-4 py-1.5 text-sm border border-slate-300 text-black rounded-lg outline-none focus:ring-2 focus:ring-blue-100 w-64 bg-white"
+              />
+            </div>
+          </div>
+
+          {/* 💡 2. 데이터 테이블 영역 */}
+          <div className="bg-white overflow-x-auto max-h-[600px] overflow-y-auto">
+            <table className="w-full text-left border-collapse table-fixed">
+              <thead className="bg-white sticky top-0 z-10 border-b-2 border-slate-200 shadow-sm">
+                {/* 💡 1. 컬럼 헤더를 목업과 동일하게 재배치 */}
+                <tr className="text-xs uppercase text-slate-500 font-bold">
+                  <th className="py-3 px-6 w-24 min-w-[90px] text-center">
+                    심각도
+                  </th>
+                  <th className="py-3 px-6 w-36">분석기</th>
+                  <th className="py-3 px-6">취약점 유형</th>
+                  <th className="py-3 px-6 w-32">CWE</th>
+                  <th className="py-3 px-6 w-24">라인</th>
+                  <th className="py-3 px-4 w-12"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredIssues.length > 0 ? (
+                  filteredIssues.map((issue) => {
+                    const isExpanded = expandedIssueId === issue.id;
+                    return (
+                      <React.Fragment key={issue.id}>
+                        {/* 💡 부모 행 (토글 클릭 영역) */}
+                        <tr
+                          onClick={() => toggleIssue(issue.id)}
+                          className={`cursor-pointer transition-colors group ${isExpanded ? "bg-blue-50/40" : "hover:bg-slate-50"}`}
                         >
-                          {issue.severity_ko}
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h4 className="font-bold text-slate-900 text-sm">
-                              {issue.type_ko}
-                            </h4>
+                          <td className="py-4 px-6 whitespace-nowrap text-center">
+                            <span
+                              className={`px-3 py-1.5 inline-block rounded text-[11px] font-black border ${severityColors[issue.severity_ko] || "bg-slate-100 text-slate-700"}`}
+                            >
+                              {issue.severity_ko}
+                            </span>
+                          </td>
+                          <td className="py-4 px-6 text-xs font-medium text-slate-500 truncate">
+                            {issue.analyzer}
+                          </td>
+                          <td className="py-4 px-6 font-bold text-sm text-slate-900 group-hover:text-blue-600 transition-colors truncate">
+                            {issue.type_ko}
+                          </td>
+                          <td className="py-4 px-6">
                             {issue.cwe && (
-                              <span className="px-1.5 py-0.5 text-[10px] font-mono bg-slate-100 text-slate-500 border border-slate-200 rounded">
+                              <span className="px-2 py-1 text-[11px] font-mono bg-slate-100 text-slate-500 border border-slate-200 rounded">
                                 {issue.cwe}
                               </span>
                             )}
-                            {issue.owasp && (
-                              <span className="px-1.5 py-0.5 text-[10px] font-mono bg-slate-100 text-slate-500 border border-slate-200 rounded">
-                                {issue.owasp}
-                              </span>
+                          </td>
+                          <td className="py-4 px-6 text-sm font-mono text-slate-600">
+                            {issue.line}
+                          </td>
+                          <td className="py-4 px-4 text-slate-400">
+                            {isExpanded ? (
+                              <ChevronUp className="w-5 h-5" />
+                            ) : (
+                              <ChevronDown className="w-5 h-5" />
                             )}
-                          </div>
-                          <p className="text-slate-600 text-sm truncate max-w-xl">
-                            {issue.message}
-                          </p>
-                          <div className="mt-2 text-xs font-mono text-slate-400 bg-slate-100 px-2 py-1 rounded inline-block">
-                            {issue.file} : Line {issue.line}
-                          </div>
-                        </div>
-                        <div className="text-slate-400">
-                          {isExpanded ? (
-                            <ChevronUp className="w-5 h-5" />
-                          ) : (
-                            <ChevronDown className="w-5 h-5" />
-                          )}
-                        </div>
-                      </div>
+                          </td>
+                        </tr>
 
-                      {isExpanded && (
-                        <div className="px-5 pb-6 pt-2 bg-slate-50 border-t border-slate-100">
-                          <div className="grid grid-cols-2 gap-6">
-                            <div className="space-y-4">
-                              <div>
-                                <h5 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5 mb-1.5">
-                                  <HelpCircle className="w-3.5 h-3.5" /> 탐지
-                                  사유 및 분석
-                                </h5>
-                                <div className="bg-white p-3 rounded-lg border border-slate-200 text-sm text-slate-700 leading-relaxed shadow-sm">
-                                  <p className="mb-2 font-medium">
-                                    {issue.detection_reason_ko}
-                                  </p>
-                                  <div className="flex gap-4 text-xs mt-3 pt-3 border-t border-slate-100">
-                                    <span>
-                                      <span className="text-slate-400">
-                                        탐지기:
-                                      </span>{" "}
-                                      <span className="font-mono">
-                                        {issue.analyzer}
-                                      </span>
-                                    </span>
-                                    <span>
-                                      <span className="text-slate-400">
-                                        규칙 ID:
-                                      </span>{" "}
-                                      <span className="font-mono">
-                                        {issue.rule_id}
-                                      </span>
-                                    </span>
-                                    <span>
-                                      <span className="text-slate-400">
-                                        확신도:
-                                      </span>{" "}
-                                      <span className="font-bold text-blue-600">
-                                        {Number(issue.confidence) * 100}%
-                                      </span>
-                                    </span>
+                        {/* 💡 자식 행 (아코디언 펼침 영역) */}
+                        {isExpanded && (
+                          <tr>
+                            <td
+                              colSpan={6}
+                              className="p-0 border-b border-slate-200"
+                            >
+                              <div className="px-8 py-6 bg-slate-50 shadow-inner">
+                                {/* 💡 2. 파일 경로: 확장 영역 최상단에 바코드/브레드크럼 느낌으로 배치 */}
+                                <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-200/70">
+                                  <span className="px-2 py-1 bg-slate-200 text-slate-600 rounded text-[10px] font-bold uppercase tracking-wider">
+                                    Target File
+                                  </span>
+                                  <span className="text-sm font-mono text-slate-700 font-semibold break-all">
+                                    {issue.file}
+                                  </span>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-8">
+                                  {/* 좌측: 원인 및 조치 가이드 */}
+                                  <div className="space-y-5">
+                                    <div>
+                                      <h5 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5 mb-2">
+                                        <HelpCircle className="w-3.5 h-3.5 text-blue-500" />{" "}
+                                        상세 메시지 및 탐지 사유
+                                      </h5>
+                                      <div className="bg-white p-4 rounded-xl border border-slate-200 text-sm text-slate-700 leading-relaxed shadow-sm">
+                                        {/* 💡 3. 메시지: 핵심 내용이므로 파란색 왼쪽 띠(Border-left)를 주어 강조 */}
+                                        <p className="mb-4 font-semibold text-slate-900 border-l-2 border-blue-500 pl-3 py-0.5 bg-blue-50/30">
+                                          {issue.message}
+                                        </p>
+                                        <p className="mb-3 font-medium text-slate-600">
+                                          {issue.detection_reason_ko}
+                                        </p>
+                                        <div className="flex gap-4 text-xs pt-3 border-t border-slate-100">
+                                          <span>
+                                            <span className="text-slate-400">
+                                              규칙 ID:
+                                            </span>{" "}
+                                            <span className="font-mono">
+                                              {issue.rule_id}
+                                            </span>
+                                          </span>
+                                          <span>
+                                            <span className="text-slate-400">
+                                              확신도:
+                                            </span>{" "}
+                                            <span className="font-bold text-emerald-600">
+                                              {Number(issue.confidence) * 100}%
+                                            </span>
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div>
+                                      <h5 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5 mb-2">
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />{" "}
+                                        조치 가이드
+                                      </h5>
+                                      <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100 text-sm text-emerald-800 leading-relaxed shadow-sm">
+                                        {issue.fix_description_ko}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* 우측: 코드 스니펫 */}
+                                  <div className="space-y-5">
+                                    <div>
+                                      <h5 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5 mb-2">
+                                        <Terminal className="w-3.5 h-3.5 text-rose-500" />{" "}
+                                        발견된 취약 코드
+                                      </h5>
+                                      <div className="bg-slate-900 text-rose-300 font-mono text-xs p-4 rounded-xl overflow-x-auto shadow-inner border border-slate-800">
+                                        {issue.code_snippet ||
+                                          "// 코드 스니펫을 불러올 수 없습니다."}
+                                      </div>
+                                    </div>
+
+                                    {issue.fix_code && (
+                                      <div>
+                                        <h5 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5 mb-2">
+                                          <Code2 className="w-3.5 h-3.5 text-emerald-500" />{" "}
+                                          권장 수정 코드
+                                        </h5>
+                                        <div className="bg-slate-900 text-emerald-300 font-mono text-xs p-4 rounded-xl overflow-x-auto shadow-inner border border-slate-800 whitespace-pre">
+                                          {issue.fix_code}
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               </div>
-
-                              <div>
-                                <h5 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5 mb-1.5">
-                                  <CheckCircle2 className="w-3.5 h-3.5" /> 조치
-                                  가이드
-                                </h5>
-                                <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-100 text-sm text-emerald-800 leading-relaxed shadow-sm">
-                                  {issue.fix_description_ko}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="space-y-4">
-                              <div>
-                                <h5 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5 mb-1.5">
-                                  <Terminal className="w-3.5 h-3.5" /> 발견된
-                                  취약 코드
-                                </h5>
-                                <div className="bg-slate-900 text-rose-300 font-mono text-xs p-3 rounded-lg overflow-x-auto shadow-inner border border-slate-800">
-                                  {issue.code_snippet ||
-                                    "// 코드 스니펫을 불러올 수 없습니다."}
-                                </div>
-                              </div>
-
-                              {issue.fix_code && (
-                                <div>
-                                  <h5 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5 mb-1.5">
-                                    <Code2 className="w-3.5 h-3.5" /> 권장 수정
-                                    코드
-                                  </h5>
-                                  <div className="bg-slate-900 text-emerald-300 font-mono text-xs p-3 rounded-lg overflow-x-auto shadow-inner border border-slate-800">
-                                    {issue.fix_code}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="p-12 text-center text-slate-500 flex flex-col items-center">
-                <ShieldAlert className="w-12 h-12 text-emerald-400 mb-3" />
-                <h3 className="font-bold text-lg text-slate-700">
-                  탐지된 보안 취약점이 없습니다.
-                </h3>
-                <p className="text-sm">입력하신 코드는 안전합니다.</p>
-              </div>
-            )}
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="py-16 text-center text-slate-500"
+                    >
+                      검색 조건에 일치하는 취약점이 없습니다.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

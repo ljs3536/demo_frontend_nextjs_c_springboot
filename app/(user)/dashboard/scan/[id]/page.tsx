@@ -19,7 +19,10 @@ import {
   X,
   Paperclip,
   Send,
+  Download,
+  AlertTriangle,
 } from "lucide-react";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import api, {
   fetchAiExplanation,
   fetchAiFix,
@@ -32,34 +35,34 @@ type AiProvider = "core" | "openai";
 
 const COLORS = {
   CRITICAL: {
-    text: "text-red-600",
+    hex: "#dc2626",
     bg: "bg-red-50",
+    text: "text-red-600",
     border: "border-red-200",
-    main: "#dc2626",
   },
   HIGH: {
-    text: "text-orange-600",
+    hex: "#ea580c",
     bg: "bg-orange-50",
+    text: "text-orange-600",
     border: "border-orange-200",
-    main: "#ea580c",
   },
   MEDIUM: {
-    text: "text-yellow-600",
+    hex: "#ca8a04",
     bg: "bg-yellow-50",
+    text: "text-yellow-600",
     border: "border-yellow-200",
-    main: "#ca8a04",
   },
   LOW: {
-    text: "text-blue-600",
+    hex: "#2563eb",
     bg: "bg-blue-50",
+    text: "text-blue-600",
     border: "border-blue-200",
-    main: "#2563eb",
   },
   INFO: {
-    text: "text-slate-600",
+    hex: "#64748b",
     bg: "bg-slate-50",
+    text: "text-slate-600",
     border: "border-slate-200",
-    main: "#64748b",
   },
 };
 
@@ -68,11 +71,18 @@ export default function AdvancedScanReportPage() {
   const router = useRouter();
   const scanId = params.id as string;
 
+  // 데이터 상태 관리
   const [reportData, setReportData] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // 선택된 이슈 관리를 위한 상태
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  const [activeIssueDetail, setActiveIssueDetail] = useState<any>(null); // API로 받아온 상세 정보
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
+
   const [severityFilter, setSeverityFilter] = useState<string>("ALL");
 
+  // AI 관련 상태
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
   const [aiActiveTab, setAiActiveTab] = useState<AiTaskMode>("explain");
   const [selectedProvider, setSelectedProvider] = useState<AiProvider>("core");
@@ -85,6 +95,7 @@ export default function AdvancedScanReportPage() {
     openai: { explain: null, fix: null },
   });
 
+  // 문의 관련 상태
   const [isInquiryDrawerOpen, setIsInquiryDrawerOpen] = useState(false);
   const [inquiryTitle, setInquiryTitle] = useState("");
   const [inquiryContent, setInquiryContent] = useState("");
@@ -125,22 +136,18 @@ export default function AdvancedScanReportPage() {
     }
   };
 
+  // 1. 초기 데이터 로드 (요약 및 리스트)
   useEffect(() => {
     if (!scanId) return;
     const fetchReport = async () => {
       try {
-        // 💡 백엔드 DTO(HistoryDetailRequest)에 맞춰 scanId(카멜케이스)로 전송
-        const response = await api.post("/scans/detail", {
-          scanId: scanId,
-        });
-
-        // 💡 공통 응답(ApiResponse) 껍데기 벗기기
+        const response = await api.post("/scans/detail", { scanId });
         const data = response.data.data || response.data;
         setReportData(data);
-
-        // 💡 vulnerabilities(카멜케이스) 로 접근
+        console.log(data);
+        // 첫 번째 아이템 자동 선택
         if (data.vulnerabilities?.length > 0) {
-          setSelectedIssueId(data.vulnerabilities[0].vulnerabilityId);
+          handleSelectIssue(data.vulnerabilities[0].vulnerabilityId);
         }
       } catch (error) {
         console.error("리포트 조회 실패:", error);
@@ -151,12 +158,72 @@ export default function AdvancedScanReportPage() {
     fetchReport();
   }, [scanId]);
 
-  useEffect(() => {
+  // 2. 항목 클릭 시 상세 정보 단건 조회 API 호출
+  const handleSelectIssue = async (vulnerabilityId: string) => {
+    if (selectedIssueId === vulnerabilityId) return; // 동일 항목 클릭 방지
+
+    setSelectedIssueId(vulnerabilityId);
+    setIsDetailLoading(true);
     setAiResponses({
       core: { explain: null, fix: null },
       openai: { explain: null, fix: null },
     });
-  }, [selectedIssueId]);
+
+    try {
+      // 💡 진석님이 작성하신 Controller 엔드포인트 호출
+      const response = await api.post("/vulnerabilities/detail", {
+        vulnerabilityId: vulnerabilityId,
+      });
+      setActiveIssueDetail(response.data.data || response.data);
+    } catch (error) {
+      console.error("취약점 상세 조회 실패:", error);
+      // API 실패 시 리스트의 기본 데이터라도 매핑 (임시 폴백)
+      const fallback = reportData?.vulnerabilities?.find(
+        (i: any) => i.vulnerabilityId === vulnerabilityId,
+      );
+      setActiveIssueDetail(fallback);
+    } finally {
+      setIsDetailLoading(false);
+    }
+  };
+
+  // 통계 데이터 산출 (차트용)
+  const severityChartData = useMemo(() => {
+    if (!reportData) return [];
+    return [
+      {
+        name: "심각",
+        value: reportData.issuesCritical || 0,
+        color: COLORS.CRITICAL.hex,
+      },
+      {
+        name: "높음",
+        value: reportData.issuesHigh || 0,
+        color: COLORS.HIGH.hex,
+      },
+      {
+        name: "중간",
+        value: reportData.issuesMedium || 0,
+        color: COLORS.MEDIUM.hex,
+      },
+      { name: "낮음", value: reportData.issuesLow || 0, color: COLORS.LOW.hex },
+    ].filter((item) => item.value > 0);
+  }, [reportData]);
+
+  // Top 5 취약점 유형 산출
+  const top5Vulnerabilities = useMemo(() => {
+    if (!reportData?.vulnerabilities) return [];
+    const counts = reportData.vulnerabilities.reduce((acc: any, curr: any) => {
+      const type = curr.typeKo || curr.type;
+      acc[type] = (acc[type] || 0) + 1;
+      return acc;
+    }, {});
+
+    return Object.entries(counts)
+      .map(([name, count]) => ({ name, count: count as number }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+  }, [reportData]);
 
   const renderAiFormattedContent = (text: string | null) => {
     if (!text) return null;
@@ -208,19 +275,18 @@ export default function AdvancedScanReportPage() {
   };
 
   const handleExecuteAiAdvisory = async (task: AiTaskMode) => {
-    if (!activeIssue) return;
+    if (!activeIssueDetail) return;
     setIsAiLoading(true);
     setAiActiveTab(task);
 
-    // 💡 공통 CodeSnippetRequest 스펙에 맞춘 단일 페이로드
     const requestPayload = {
-      issue_seq: activeIssue.issueSeq || 0,
-      vulnerability_type: activeIssue.typeKo || activeIssue.type || "Unknown",
-      cwe_id: activeIssue.cweId || "CWE-Unknown",
-      severity: activeIssue.severity || "INFO",
-      file_path: activeIssue.filePath || "Unknown",
-      line_number: activeIssue.lineNumber || 0,
-      code_snippet: activeIssue.codeSnippet || "",
+      issue_seq: activeIssueDetail.issueSeq ?? 0,
+      vulnerability_type: activeIssueDetail.typeKo || "Unknown",
+      cwe_id: activeIssueDetail.cweId || "CWE-Unknown",
+      severity: activeIssueDetail.severity || "INFO",
+      file_path: activeIssueDetail.filePath || "Unknown",
+      line_number: activeIssueDetail.lineNumber || 0,
+      code_snippet: activeIssueDetail.codeSnippet || "", // API로 갓 받아온 신선한 코드
       framework: "Unknown",
       language: reportData.language || "Unknown",
     };
@@ -358,148 +424,308 @@ export default function AdvancedScanReportPage() {
   );
 
   return (
-    <div className="space-y-4 max-w-[1600px] mx-auto">
-      {/* 1. 상단 미니멀 요약 바 */}
-      <div className="bg-white border border-slate-200 rounded-xl p-4 flex justify-between items-center shadow-sm">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => router.push("/scans")}
-            className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 hover:text-slate-600 transition"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div>
-            <h1 className="text-lg font-bold text-slate-900">
-              {reportData.target} {/* 💡 target 매핑 */}
-            </h1>
-            <p className="text-xs text-slate-400 font-mono">
-              ID: {scanId} | {new Date(reportData.startedAt).toLocaleString()}
-            </p>
+    <>
+      <div className="h-[calc(100vh-2rem)] min-h-[800px] flex gap-4 p-4 max-w-[1920px] mx-auto bg-slate-100">
+        {/* ==========================================
+            1. 왼쪽 컬럼: 요약 정보 및 차트 (w-1/4)
+        ========================================== */}
+        <div className="w-1/4 flex flex-col gap-4">
+          {/* 상단 프로젝트 요약 */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col">
+            {/* 헤더 부분 */}
+            <div className="mb-5">
+              <h1 className="text-lg font-extrabold text-slate-900 mb-1 leading-tight">
+                {reportData?.target}
+              </h1>
+              <p className="text-xs text-slate-400 font-mono">ID: {scanId}</p>
+            </div>
+
+            {/* 스캔 개요 정보 */}
+            <div className="space-y-3 mb-6">
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-500 font-medium">스캔 유형</span>
+                <span className="text-slate-800 font-bold">
+                  {reportData?.policy || "N/A"}
+                </span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-500 font-medium">스캔 파일 수</span>
+                <span className="text-slate-800 font-bold">
+                  {reportData?.filesScanned || 0} 개
+                </span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-500 font-medium">소요 시간</span>
+                <span className="text-slate-800 font-bold">
+                  {reportData?.durationMs
+                    ? (reportData.durationMs / 1000).toFixed(1) + "초"
+                    : "0초"}
+                </span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-500 font-medium">시작 시간</span>
+                <span className="text-slate-800 font-bold">
+                  {reportData?.startedAt
+                    ? new Date(reportData.startedAt).toLocaleString()
+                    : "N/A"}
+                </span>
+              </div>
+            </div>
+
+            {/* 액션 버튼 */}
+            <div className="flex flex-col gap-2 mt-auto">
+              <button
+                onClick={() => handleDownloadJsonReport(scanId)}
+                className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-bold shadow-sm hover:bg-blue-700 flex items-center justify-center gap-2 transition-colors"
+              >
+                <Download className="w-4 h-4" /> 보고서 다운로드
+              </button>
+              <button
+                onClick={() => setIsInquiryDrawerOpen(true)}
+                className="w-full py-2 bg-slate-800 text-white rounded-lg text-sm font-bold shadow-sm hover:bg-slate-900 flex items-center justify-center gap-2 transition-colors"
+              >
+                <MessageSquarePlus className="w-4 h-4" /> 오탐 및 장애 문의
+              </button>
+            </div>
           </div>
-          <div className="pl-4 border-l border-slate-200 flex gap-2">
-            <button
-              onClick={() => setIsInquiryDrawerOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-bold hover:bg-slate-800 transition-colors shadow-sm"
-            >
-              <MessageSquarePlus className="w-4 h-4" /> 오탐 및 장애 문의
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleDownloadJsonReport(scanId)}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white text-sm font-medium rounded-lg transition-colors"
-            >
-              JSON 다운로드
-            </button>
-          </div>
-        </div>
 
-        {/* 상단 미니 필터 탭 */}
-        <div className="flex gap-1.5 bg-slate-100 p-1 rounded-lg text-xs font-bold">
-          <button
-            onClick={() => setSeverityFilter("ALL")}
-            className={`px-3 py-1.5 rounded-md transition ${severityFilter === "ALL" ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
-          >
-            전체 ({totalIssuesCount})
-          </button>
-          {Object.entries(severityTotals).map(([sev, count]) => (
-            <button
-              key={sev}
-              onClick={() => setSeverityFilter(sev)}
-              disabled={count === 0}
-              className={`px-3 py-1.5 rounded-md transition disabled:opacity-30 ${severityFilter === sev ? "bg-slate-900 text-white shadow-sm" : "text-slate-600 hover:bg-slate-200/60"}`}
-            >
-              {sev} ({count})
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 2. 메인 워크벤치 레이아웃 */}
-      <div className="flex h-[calc(100vh-13rem)] min-h-[650px] border border-slate-200 rounded-2xl bg-white shadow-sm overflow-hidden">
-        {/* 왼쪽 컬럼 */}
-        <div className="w-1/3 border-r border-slate-200 flex flex-col bg-slate-50/50">
-          <div className="p-3 border-b border-slate-200 bg-white flex justify-between items-center">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-              Detection List ({filteredIssues.length})
-            </span>
+          {/* 심각도 차트 */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex-1 flex flex-col">
+            <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-500" /> 심각도 분포
+              현황
+            </h3>
+            <div className="flex-1 min-h-[200px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={severityChartData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {severityChartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="flex justify-center gap-4 mt-2 text-xs font-bold">
+              {severityChartData.map((d: any) => (
+                <div key={d.name} className="flex items-center gap-1">
+                  <div
+                    className="w-2.5 h-2.5 rounded-full"
+                    style={{ backgroundColor: d.color }}
+                  ></div>
+                  <span className="text-slate-600">
+                    {d.name} ({d.value})
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto divide-y divide-slate-100 bg-white">
-            {filteredIssues.map((issue: any) => {
-              const isSelected = issue.vulnerabilityId === selectedIssueId;
-              const sev = issue.severity?.toUpperCase() || "INFO";
-              const theme = COLORS[sev as keyof typeof COLORS] || COLORS.INFO;
-
-              return (
+          {/* Top 5 취약점 */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex-1 overflow-y-auto">
+            <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-orange-500" /> 주요 취약점
+              유형 Top 5
+            </h3>
+            <div className="space-y-3">
+              {top5Vulnerabilities.map((item: any, idx: number) => (
                 <div
-                  key={issue.vulnerabilityId}
-                  onClick={() => setSelectedIssueId(issue.vulnerabilityId)}
-                  className={`p-4 cursor-pointer transition-all flex justify-between items-start border-l-4 ${isSelected ? "bg-blue-50/50 border-blue-600 shadow-inner" : "border-transparent hover:bg-slate-50"}`}
+                  key={idx}
+                  className="flex justify-between items-center bg-slate-50 p-2.5 rounded-lg border border-slate-100"
                 >
-                  <div className="space-y-1 max-w-[90%]">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`text-[10px] font-black px-1.5 py-0.5 rounded ${theme.bg} ${theme.text} border ${theme.border}`}
+                  <span className="text-xs font-semibold text-slate-700 truncate mr-2">
+                    {item.name}
+                  </span>
+                  <span className="text-xs font-black text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                    {item.count}건
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ==========================================
+            2. 중앙 컬럼: 코드 뷰어 & 취약점 리스트 (w-2/4)
+        ========================================== */}
+        <div className="w-2/4 flex flex-col gap-4">
+          {/* 상단 코드 뷰어 영역 */}
+          <div className="h-1/2 bg-slate-900 rounded-xl shadow-sm border border-slate-800 flex flex-col overflow-hidden relative">
+            <div className="bg-slate-950 px-4 py-2 border-b border-slate-800 flex justify-between items-center">
+              <span className="text-xs font-mono text-slate-400">
+                {activeIssueDetail
+                  ? activeIssueDetail.filePath
+                  : "파일을 선택해주세요"}
+              </span>
+              {activeIssueDetail?.lineNumber && (
+                <span className="text-xs text-rose-400 font-mono bg-rose-950/50 px-2 py-0.5 rounded border border-rose-900">
+                  Line: {activeIssueDetail.lineNumber}
+                </span>
+              )}
+            </div>
+
+            <div className="flex-1 p-4 relative">
+              {isDetailLoading ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-slate-900/80 z-10">
+                  <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+                </div>
+              ) : null}
+              <textarea
+                readOnly
+                className="w-full h-full bg-transparent text-slate-300 font-mono text-sm resize-none outline-none"
+                value={
+                  activeIssueDetail?.codeSnippet ||
+                  "// 소스 코드 영역입니다. 하단 리스트에서 취약점을 선택하세요."
+                }
+              />
+            </div>
+          </div>
+
+          {/* 하단 취약점 리스트 테이블 */}
+          <div className="h-1/2 bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden">
+            <div className="overflow-auto flex-1">
+              <table className="w-full text-left border-collapse table-fixed">
+                <thead className="bg-white sticky top-0 z-10 border-b-2 border-slate-200 shadow-sm">
+                  <tr className="text-[11px] uppercase text-slate-500 font-bold bg-slate-50">
+                    <th className="py-3 px-4 w-24 text-center">심각도</th>
+                    <th className="py-3 px-4">취약점 유형</th>
+                    <th className="py-3 px-4 w-32">CWE</th>
+                    <th className="py-3 px-4 w-32">위치</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {reportData?.vulnerabilities?.map((issue: any) => {
+                    const isSelected =
+                      selectedIssueId === issue.vulnerabilityId;
+                    const sevColor =
+                      COLORS[
+                        issue.severity?.toUpperCase() as keyof typeof COLORS
+                      ] || COLORS.INFO;
+
+                    return (
+                      <tr
+                        key={issue.vulnerabilityId}
+                        onClick={() => handleSelectIssue(issue.vulnerabilityId)}
+                        className={`cursor-pointer transition-colors group ${isSelected ? "bg-blue-50" : "hover:bg-slate-50"}`}
                       >
-                        {issue.severityKo || sev}
-                      </span>
-                      <span className="text-xs font-mono font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
-                        {issue.cweId || "CWE"}
+                        <td className="py-3 px-4 text-center whitespace-nowrap">
+                          <span
+                            className={`px-2 py-1 rounded text-[10px] font-black border ${sevColor.bg} ${sevColor.text} ${sevColor.border}`}
+                          >
+                            {issue.severityKo || issue.severity}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 truncate">
+                          <div className="font-bold text-sm text-slate-900 group-hover:text-blue-600 truncate">
+                            {issue.typeKo}
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-xs font-mono text-slate-500 truncate">
+                          {issue.cweId}
+                        </td>
+                        <td className="py-3 px-4 text-xs font-mono text-slate-500 truncate">
+                          {issue.filePath?.split("/").pop()}{" "}
+                          <span className="text-slate-400">
+                            :{issue.lineNumber}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {/* ==========================================
+            3. 오른쪽 컬럼: 상세 정보 및 AI (w-1/4)
+        ========================================== */}
+        <div className="w-1/4 flex flex-col gap-4 overflow-y-auto">
+          {activeIssueDetail ? (
+            <>
+              {/* 상세 분석 카드 */}
+              <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
+                <h2 className="text-lg font-extrabold text-slate-900 border-b border-slate-100 pb-3">
+                  {activeIssueDetail.typeKo}
+                </h2>
+
+                <div>
+                  <h4 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1 mb-2">
+                    <Info className="w-3.5 h-3.5 text-blue-500" /> 정밀 진단
+                    원인
+                  </h4>
+                  <p className="text-sm text-slate-700 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-100">
+                    {activeIssueDetail.detectionReasonKo ||
+                      activeIssueDetail.message}
+                  </p>
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1 mb-2">
+                    <HelpCircle className="w-3.5 h-3.5 text-slate-500" /> 분류
+                    기준 체계
+                  </h4>
+                  <div className="text-xs space-y-1.5 text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-100">
+                    <div className="flex justify-between border-b border-slate-200 pb-1.5">
+                      <span>CWE 분류 ID</span>
+                      <span className="font-mono font-bold">
+                        {activeIssueDetail.cweId || "N/A"}
                       </span>
                     </div>
-                    <p className="text-sm font-bold text-slate-800 truncate">
-                      {issue.typeKo || issue.type}
-                    </p>
-                    <p className="text-xs font-mono text-slate-400 truncate">
-                      {issue.filePath?.split("/").pop()} : Line{" "}
-                      {issue.lineNumber}
-                    </p>
+                    <div className="flex justify-between pt-1">
+                      <span>OWASP 카테고리</span>
+                      <span className="font-bold">
+                        {activeIssueDetail.owaspId || "N/A"}
+                      </span>
+                    </div>
                   </div>
-                  <ChevronRight
-                    className={`w-4 h-4 mt-1 text-slate-300 transition-transform ${isSelected ? "translate-x-1 text-blue-500" : ""}`}
-                  />
                 </div>
-              );
-            })}
-          </div>
-        </div>
+              </div>
 
-        {/* 오른쪽 컬럼 */}
-        <div className="w-2/3 flex flex-col overflow-y-auto bg-slate-50/30">
-          {activeIssue ? (
-            <div className="p-6 space-y-6">
-              <div className="border-b border-slate-200 pb-4 flex justify-between items-end">
-                <div>
-                  <h2 className="text-xl font-extrabold text-slate-900 mb-2">
-                    {activeIssue.typeKo || activeIssue.type}
-                  </h2>
-                  <p className="text-xs font-mono text-slate-400">
-                    파일 경로:{" "}
-                    <span className="text-slate-700 font-medium">
-                      {activeIssue.filePath}
-                    </span>
+              {/* 조치 가이드 카드 */}
+              {activeIssueDetail.fixDescriptionKo && (
+                <div className="bg-emerald-50 rounded-xl shadow-sm border border-emerald-100 p-5">
+                  <h4 className="text-xs font-bold text-emerald-700 uppercase flex items-center gap-1 mb-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> 시큐어
+                    코딩 패치 권고
+                  </h4>
+                  <p className="text-sm text-emerald-800 leading-relaxed">
+                    {activeIssueDetail.fixDescriptionKo}
                   </p>
+                </div>
+              )}
 
-                  <div className="flex gap-1 bg-slate-100 p-0.5 rounded-lg text-[11px] font-bold mt-3 w-fit border border-slate-200">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedProvider("core")}
-                      className={`px-2.5 py-1 rounded-md transition ${selectedProvider === "core" ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
-                    >
-                      <Cpu className="w-3 h-3 inline mr-1" /> 분석기 내장 모델
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedProvider("openai")}
-                      className={`px-2.5 py-1 rounded-md transition ${selectedProvider === "openai" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
-                    >
-                      <Sparkles className="w-3 h-3 inline mr-1 text-indigo-500" />{" "}
-                      OpenAI GPT-4o
-                    </button>
-                  </div>
+              {/* AI 보안 기능 영역 */}
+              <div>
+                <div className="flex gap-1 bg-slate-100 p-0.5 rounded-lg text-[11px] font-bold mt-3 w-fit border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedProvider("core")}
+                    className={`px-2.5 py-1 rounded-md transition ${selectedProvider === "core" ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
+                  >
+                    <Cpu className="w-3 h-3 inline mr-1" /> 분석기 내장 모델
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedProvider("openai")}
+                    className={`px-2.5 py-1 rounded-md transition ${selectedProvider === "openai" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
+                  >
+                    <Sparkles className="w-3 h-3 inline mr-1 text-indigo-500" />{" "}
+                    OpenAI GPT-4o
+                  </button>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex gap-2 mt-3">
                   <button
                     onClick={() => handleExecuteAiAdvisory("explain")}
                     disabled={isAiLoading}
@@ -517,11 +743,12 @@ export default function AdvancedScanReportPage() {
                 </div>
               </div>
 
+              {/* AI 결과 렌더링 카드 */}
               {(isAiLoading || currentActiveContent) && (
                 <div
                   className={`border rounded-2xl p-5 space-y-3 shadow-sm transition-all bg-gradient-to-br ${selectedProvider === "openai" ? "from-indigo-50/50 to-purple-50/30 border-indigo-100" : "from-purple-50/50 to-slate-50/30 border-purple-100"}`}
                 >
-                  <div className="flex items-center justify-between border-b pb-2 border-slate-100">
+                  <div className="flex items-center justify-between border-b pb-2 border-slate-100/50">
                     <div className="flex items-center gap-2 font-extrabold text-sm text-slate-800">
                       <Brain
                         className={`w-4 h-4 ${selectedProvider === "openai" ? "text-indigo-600 animate-pulse" : "text-purple-600"}`}
@@ -555,121 +782,23 @@ export default function AdvancedScanReportPage() {
                   )}
                 </div>
               )}
-
-              <div className="space-y-2">
-                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <Terminal className="w-3.5 h-3.5 text-slate-500" /> 코드 증거
-                  분석 (Code Evidence)
-                </h3>
-                <div className="bg-slate-950 rounded-xl border border-slate-900 shadow-lg overflow-hidden font-mono text-xs text-slate-300">
-                  <div className="bg-slate-900/60 px-4 py-2 border-b border-slate-800 text-slate-500 flex justify-between">
-                    <span>{activeIssue.filePath?.split("/").pop()}</span>
-                    <span className="text-blue-400">
-                      Line {activeIssue.lineNumber}
-                    </span>
-                  </div>
-                  <div className="p-4 flex gap-4 bg-slate-950 leading-relaxed overflow-x-auto">
-                    <div className="text-slate-600 select-none text-right pr-2 border-r border-slate-800/80">
-                      <div>{activeIssue.lineNumber - 1}</div>
-                      <div className="text-red-500 font-bold">
-                        {activeIssue.lineNumber}
-                      </div>
-                      <div>{activeIssue.lineNumber + 1}</div>
-                    </div>
-                    <div className="w-full space-y-0.5">
-                      <div className="opacity-40">// ... context snippet</div>
-                      <div className="text-rose-400 bg-rose-950/40 font-bold px-2 py-0.5 rounded border border-rose-900/50 my-1 shadow-sm whitespace-pre-wrap">
-                        {activeIssue.codeSnippet ||
-                          "// 원천 코드를 매핑할 수 없습니다."}
-                      </div>
-                      <div className="opacity-40">// ... context snippet</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-2">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                    <Info className="w-3.5 h-3.5 text-blue-500" /> 정밀 진단
-                    원인
-                  </h4>
-                  <p className="text-sm text-slate-700 leading-relaxed font-sans">
-                    {activeIssue.detectionReasonKo || activeIssue.message}
-                  </p>
-                </div>
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm space-y-2">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                    <HelpCircle className="w-3.5 h-3.5 text-slate-500" /> 분류
-                    기준 체계
-                  </h4>
-                  <div className="text-xs space-y-1 text-slate-600">
-                    <div>
-                      • 취약점 종류:{" "}
-                      <span className="font-semibold text-slate-800">
-                        {activeIssue.typeKo || activeIssue.type}
-                      </span>
-                    </div>
-                    <div>
-                      • CWE 분류 ID:{" "}
-                      <span className="font-mono font-semibold text-blue-600 underline">
-                        {activeIssue.cweId || "N/A"}
-                      </span>
-                    </div>
-                    <div>
-                      • OWASP 카테고리:{" "}
-                      <span className="font-semibold text-slate-800">
-                        {activeIssue.owaspId || "N/A"}
-                      </span>
-                    </div>
-                    <div>
-                      • 탐지 확신도 스코어:{" "}
-                      <span className="font-bold text-emerald-600">
-                        {activeIssue.confidence
-                          ? (activeIssue.confidence * 100).toFixed(0)
-                          : 100}
-                        %
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {activeIssue.fixCode && (
-                <div className="space-y-2">
-                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />{" "}
-                    시큐어 코딩 패치 권고
-                  </h3>
-                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3 font-sans">
-                    <p className="text-xs text-slate-600 bg-emerald-50 text-emerald-800 p-2.5 rounded-lg border border-emerald-100">
-                      💡{" "}
-                      {activeIssue.fixDescriptionKo ||
-                        "아래 가이드 코드를 참고하여 안전한 코딩 표준 규칙을 준수하세요."}
-                    </p>
-                    <div className="bg-slate-900 text-slate-100 font-mono text-xs p-4 rounded-lg overflow-x-auto leading-relaxed border border-slate-950 shadow-inner">
-                      <div className="text-slate-500 text-[10px] uppercase font-bold tracking-wider mb-2">
-                        // RECOMMENDED FIX PATCH CODE
-                      </div>
-                      <span className="text-emerald-400 whitespace-pre-wrap">
-                        {activeIssue.fixCode}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            </>
           ) : (
-            <div className="flex h-full flex-col items-center justify-center text-slate-400 text-sm">
-              <FileCode className="w-12 h-12 text-slate-200 mb-2" />
-              분석 세부 정보를 확인하려면 왼쪽 리스트에서 결함 항목을
-              선택하세요.
+            <div className="h-full bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col items-center justify-center text-slate-400 p-8 text-center">
+              <Code2 className="w-12 h-12 mb-3 text-slate-200" />
+              <p className="text-sm">
+                중앙의 리스트에서 항목을 선택하시면
+                <br />
+                상세 정보와 AI 진단이 표시됩니다.
+              </p>
             </div>
           )}
         </div>
       </div>
 
-      {/* 오른쪽 슬라이드 드로어 */}
+      {/* ==========================================
+          4. 슬라이드 드로어 (오탐 및 장애 문의)
+      ========================================== */}
       {isInquiryDrawerOpen && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div
@@ -778,6 +907,6 @@ export default function AdvancedScanReportPage() {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
