@@ -192,7 +192,7 @@ export default function EnhancedScanPage() {
     try {
       const response = await api.post(
         "/scans/report",
-        { scanId: scanId, format: "json", limit: 1000 },
+        { scanId: scanId, format: "json" },
         { responseType: "blob" },
       );
 
