@@ -62,7 +62,7 @@ export default function DashboardPage() {
     const fetchDashboard = async () => {
       try {
         const response = await api.get("/dashboard");
-        setData(response.data);
+        setData(response.data.data);
       } catch (error) {
         console.error("대시보드 데이터 로드 실패:", error);
       } finally {

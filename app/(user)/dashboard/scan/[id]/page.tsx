@@ -180,6 +180,7 @@ export default function AdvancedScanReportPage() {
 
     try {
       const response = await api.post("/vulnerabilities/detail", {
+        scanId: scanId,
         vulnerabilityId: vulnerabilityId,
       });
       setActiveIssueDetail(response.data.data || response.data);
