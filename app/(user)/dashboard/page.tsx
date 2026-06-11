@@ -1,20 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import api from "@/lib/api";
 import {
   ShieldAlert,
   FileSearch,
   MessageSquareWarning,
-  PackageSearch,
   Activity,
-  Layers,
   FileCode2,
-  Bell, // 💡 추가된 아이콘 (공지사항)
-  HelpCircle, // 💡 추가된 아이콘 (문의)
-  CheckCircle2, // 💡 상태 표시용 아이콘
+  Bell,
+  HelpCircle,
+  CheckCircle2,
   Clock,
+  AlertTriangle,
+  Info,
 } from "lucide-react";
 import {
   PieChart,
@@ -25,23 +25,13 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-// --- 백엔드 DTO와 매핑되는 인터페이스 정의 ---
-interface DashboardData {
-  summary: {
-    totalScans: number;
-    totalVulnerabilities: number;
-    pendingInquiries: number;
-    totalSboms: number;
-  };
-  languageDistribution: { name: string; value: number }[];
-  sbomInsights: {
-    totalComponents: number;
-    totalLicenses: number;
-    averageRiskScore: number;
-  };
-  recentScans: any[];
-  recentNotices: any[]; // 💡 추가됨
-  recentInquiries: any[]; // 💡 추가됨
+// --- 백엔드 DTO 매핑 인터페이스 ---
+interface ScanStatistics {
+  issuesCritical: number;
+  issuesHigh: number;
+  issuesMedium: number;
+  issuesLow: number;
+  scanCountByLanguage: { language: string; scanCount: number }[];
 }
 
 const COLORS = [
@@ -55,22 +45,65 @@ const COLORS = [
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [data, setData] = useState<DashboardData | null>(null);
+
+  // 💡 상태를 데이터 도메인별로 분리하여 관리
+  const [stats, setStats] = useState<ScanStatistics | null>(null);
+  const [notices, setNotices] = useState<any[]>([]);
+  const [inquiries, setInquiries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchDashboard = async () => {
+    const fetchDashboardData = async () => {
       try {
-        const response = await api.get("/dashboard");
-        setData(response.data.data);
+        // 💡 Promise.all을 활용한 병렬 API 호출 (로딩 시간 단축)
+        // 실제 백엔드 엔드포인트 URL에 맞춰 수정이 필요할 수 있습니다.
+        const [statsRes, noticeRes, inquiryRes] = await Promise.all([
+          api.post("/scans/statistics"), // 새로 만든 통계 API (최근 30일)
+          api.post("/notices/list", { outputCount: 5 }), // 공지사항 API (예시)
+          api.post("/inquiries/list", { outputCount: 5 }), // 문의내역 API (예시)
+        ]);
+        console.log(statsRes.data.data);
+        console.log(noticeRes.data.data);
+        console.log(inquiryRes.data.data);
+        // 응답 데이터 세팅 (ApiResponse 래핑 여부에 따라 .data.data 처리)
+        const statsData = statsRes.data?.data || statsRes.data;
+        setStats(statsData);
+
+        const noticeData = noticeRes.data?.data || noticeRes.data;
+        setNotices(noticeData?.content || []); // .content를 명시적으로 지정
+
+        const inquiryData = inquiryRes.data?.data || inquiryRes.data;
+        setInquiries(inquiryData?.content || []); // .content를 명시적으로 지정
       } catch (error) {
         console.error("대시보드 데이터 로드 실패:", error);
       } finally {
         setLoading(false);
       }
     };
-    fetchDashboard();
+
+    fetchDashboardData();
   }, []);
+
+  // 💡 파이 차트용 언어 분포 데이터 가공
+  const languageDistribution = useMemo(() => {
+    if (!stats?.scanCountByLanguage) return [];
+
+    return stats.scanCountByLanguage
+      .map((item) => ({
+        name: item.language || "Unknown",
+        value: Number(item.scanCount || 0), // 💡 무조건 숫자로 강제 변환
+      }))
+      .filter((item) => item.value > 0); // 💡 값이 0인 항목은 파이 차트에서 그릴 수 없으므로 제외
+  }, [stats]);
+
+  // 💡 총 스캔 횟수 계산 (언어별 스캔 횟수의 합)
+  const totalScans = useMemo(() => {
+    if (!stats?.scanCountByLanguage) return 0;
+    return stats.scanCountByLanguage.reduce(
+      (acc, curr) => acc + curr.scanCount,
+      0,
+    );
+  }, [stats]);
 
   if (loading) {
     return (
@@ -81,8 +114,6 @@ export default function DashboardPage() {
     );
   }
 
-  if (!data) return null;
-
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-8">
       {/* --- 헤더 영역 --- */}
@@ -91,179 +122,103 @@ export default function DashboardPage() {
           <Activity className="w-6 h-6 text-blue-600" /> 통합 보안 관제 대시보드
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          프로젝트의 전반적인 보안 상태와 취약점 현황을 요약합니다.
+          최근 30일간의 스캔 통계 및 프로젝트 보안 상태를 요약합니다.
         </p>
       </div>
 
-      {/* --- 상단: 종합 요약 카드 (Grid 4열) --- */}
+      {/* --- 상단: 통계 요약 카드 (Grid 4열) --- */}
+      {/* 백엔드 StatisticsResponse 데이터(Critical, High 등)를 직관적으로 배치 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <SummaryCard
           icon={<FileSearch className="w-6 h-6 text-blue-600" />}
-          title="총 스캔 횟수"
-          value={data.summary?.totalScans}
-          subtitle="누적된 전체 스캔 건수"
+          title="최근 30일 스캔 횟수"
+          value={totalScans}
+          subtitle="언어별 누적 스캔 건수"
           bgColor="bg-blue-50"
           borderColor="border-blue-100"
         />
         <SummaryCard
-          icon={<ShieldAlert className="w-6 h-6 text-rose-600" />}
-          title="발견된 주요 취약점"
-          value={data.summary?.totalVulnerabilities}
-          subtitle="Critical & High 등급 합계"
-          bgColor="bg-rose-50"
-          borderColor="border-rose-100"
+          icon={<ShieldAlert className="w-6 h-6 text-red-600" />}
+          title="치명적 (Critical) 결함"
+          value={stats?.issuesCritical || 0}
+          subtitle="즉시 조치 필요"
+          bgColor="bg-red-50"
+          borderColor="border-red-100"
         />
         <SummaryCard
-          icon={<PackageSearch className="w-6 h-6 text-emerald-600" />}
-          title="관리 중인 SBOM"
-          value={data.summary?.totalSboms}
-          subtitle="생성 및 추적 중인 SBOM"
-          bgColor="bg-emerald-50"
-          borderColor="border-emerald-100"
+          icon={<AlertTriangle className="w-6 h-6 text-orange-600" />}
+          title="고위험 (High) 결함"
+          value={stats?.issuesHigh || 0}
+          subtitle="빠른 시일 내 패치 권고"
+          bgColor="bg-orange-50"
+          borderColor="border-orange-100"
         />
         <SummaryCard
-          icon={<MessageSquareWarning className="w-6 h-6 text-amber-600" />}
-          title="답변 대기 문의"
-          value={data.summary?.pendingInquiries}
-          subtitle="처리되지 않은 문의 수"
+          icon={<Info className="w-6 h-6 text-amber-600" />}
+          title="중/저위험 (Med/Low)"
+          value={(stats?.issuesMedium || 0) + (stats?.issuesLow || 0)}
+          subtitle="일반적인 보안 경고 합계"
           bgColor="bg-amber-50"
           borderColor="border-amber-100"
         />
       </div>
 
-      {/* --- 중앙: 언어 분포 & SBOM 리스크 & 스캔 내역 --- */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* 좌측: 언어 분포 파이 차트 */}
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-1 flex flex-col">
-          <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
-            <FileCode2 className="w-5 h-5 text-indigo-500" /> 언어별 스캔 분포
-          </h3>
-          <div className="flex-1 min-h-[250px]">
-            {data.languageDistribution?.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={data.languageDistribution}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {data.languageDistribution.map((entry, index) => (
-                      <Cell
-                        key={`cell-${index}`}
-                        fill={COLORS[index % COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      borderRadius: "8px",
-                      border: "none",
-                      boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-                    }}
-                  />
-                  <Legend verticalAlign="bottom" height={36} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-full text-slate-400 text-sm">
-                스캔 데이터가 없습니다.
-              </div>
-            )}
-          </div>
-        </div>
+      {/* --- 중앙: 언어 분포 파이 차트 --- */}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col">
+        <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+          <FileCode2 className="w-5 h-5 text-indigo-500" /> 프로젝트 언어별 스캔
+          분포 (최근 30일)
+        </h3>
 
-        {/* 중앙~우측: SBOM 인사이트 및 활동 */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* SBOM 미니 대시보드 */}
-          <div className="bg-slate-900 rounded-2xl shadow-sm border border-slate-800 p-6 text-white relative overflow-hidden">
-            <Layers className="absolute -right-4 -bottom-4 w-32 h-32 text-slate-800/50" />
-            <h3 className="font-bold text-slate-100 mb-6 flex items-center gap-2 relative z-10">
-              <PackageSearch className="w-5 h-5 text-emerald-400" />{" "}
-              공급망(SBOM) 보안 리스크 요약
-            </h3>
-            <div className="grid grid-cols-3 gap-4 relative z-10">
-              <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
-                <div className="text-slate-400 text-xs font-semibold mb-1">
-                  식별된 컴포넌트
-                </div>
-                <div className="text-2xl font-black text-white">
-                  {data.sbomInsights?.totalComponents.toLocaleString()}개
-                </div>
-              </div>
-              <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
-                <div className="text-slate-400 text-xs font-semibold mb-1">
-                  감지된 라이선스
-                </div>
-                <div className="text-2xl font-black text-white">
-                  {data.sbomInsights?.totalLicenses.toLocaleString()}종
-                </div>
-              </div>
-              <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700/50">
-                <div className="text-slate-400 text-xs font-semibold mb-1">
-                  평균 위험도 (0-10)
-                </div>
-                <div className="text-2xl font-black text-emerald-400">
-                  {data.sbomInsights?.averageRiskScore}
-                </div>
-              </div>
+        {/* 💡 핵심 수정 1: flex-1 min-h-[300px] 대신 명시적인 고정 높이 부여 */}
+        <div className="h-[300px] w-full">
+          {languageDistribution.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={languageDistribution}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={70}
+                  outerRadius={100}
+                  paddingAngle={5}
+                  dataKey="value"
+                  nameKey="name"
+                  // 💡 핵심 수정 2: Next.js 렌더링 버그를 막기 위해 초기 애니메이션 비활성화
+                  isAnimationActive={false}
+                >
+                  {languageDistribution.map((entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={COLORS[index % COLORS.length]}
+                    />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{
+                    borderRadius: "8px",
+                    border: "none",
+                    boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                  }}
+                />
+                <Legend verticalAlign="bottom" height={36} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+              스캔 데이터가 없습니다.
             </div>
-          </div>
-
-          {/* 최근 스캔 내역 */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="font-bold text-slate-800">최근 스캔 내역</h3>
-              <button
-                onClick={() => router.push("/scan")}
-                className="text-sm font-semibold text-blue-600 hover:underline"
-              >
-                전체보기
-              </button>
-            </div>
-            <div className="space-y-3">
-              {data.recentScans && data.recentScans.length > 0 ? (
-                data.recentScans.map((scan, idx) => (
-                  <div
-                    key={idx}
-                    className="flex justify-between items-center p-3 hover:bg-slate-50 rounded-lg border border-slate-100 transition-colors cursor-pointer"
-                    onClick={() =>
-                      router.push(`/dashboard/scan/${scan.scanId}`)
-                    }
-                  >
-                    <div>
-                      <div className="font-semibold text-sm text-slate-800">
-                        {scan.target}
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {new Date(scan.startedAt).toLocaleString()}
-                      </div>
-                    </div>
-                    <span className="px-2.5 py-1 bg-rose-100 text-rose-700 text-xs font-bold rounded-full">
-                      위험 {scan.issuesCritical + scan.issuesHigh}건
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-6 text-sm text-slate-400">
-                  최근 진행된 스캔이 없습니다.
-                </div>
-              )}
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
-      {/* --- 💡 5. 하단: 최근 공지사항 & 문의 내역 (Grid 2열) --- */}
+      {/* --- 하단: 최근 공지사항 & 문의 내역 (Grid 2열) --- */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* 시스템 공지사항 */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <div className="flex justify-between items-center mb-6">
             <h3 className="font-bold text-slate-800 flex items-center gap-2">
-              <Bell className="w-5 h-5 text-indigo-500" /> 최근 공지사항
+              <Bell className="w-5 h-5 text-indigo-500" /> 시스템 공지사항
             </h3>
             <button
               onClick={() => router.push("/notice")}
@@ -273,8 +228,8 @@ export default function DashboardPage() {
             </button>
           </div>
           <div className="space-y-2">
-            {data.recentNotices && data.recentNotices.length > 0 ? (
-              data.recentNotices.map((notice, idx) => (
+            {notices.length > 0 ? (
+              notices.slice(0, 5).map((notice: any, idx: number) => (
                 <div
                   key={idx}
                   onClick={() => router.push(`/notice/${notice.noticeSeq}`)}
@@ -290,7 +245,7 @@ export default function DashboardPage() {
               ))
             ) : (
               <div className="text-center py-6 text-sm text-slate-400">
-                등록된 공지사항이 없습니다.
+                새로운 공지사항이 없습니다.
               </div>
             )}
           </div>
@@ -310,8 +265,8 @@ export default function DashboardPage() {
             </button>
           </div>
           <div className="space-y-3">
-            {data.recentInquiries && data.recentInquiries.length > 0 ? (
-              data.recentInquiries.map((inquiry, idx) => (
+            {inquiries.length > 0 ? (
+              inquiries.slice(0, 5).map((inquiry: any, idx: number) => (
                 <div
                   key={idx}
                   onClick={() => router.push(`/inquiry/${inquiry.inquirySeq}`)}
