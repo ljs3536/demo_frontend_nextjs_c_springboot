@@ -43,6 +43,7 @@ export default function InquiryListPage() {
           page: currentPage, // 숫자로 바로 전송
           outputCount: 10,
         });
+        console.log(response.data.data.content);
         setInquiries(response.data.data.content);
         setPageInfo(response.data.data);
       } catch (error) {

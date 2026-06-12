@@ -14,7 +14,7 @@ import {
   LayersPlus,
   FileBoxIcon,
 } from "lucide-react";
-
+import AuthGuard from "@/components/AuthGuard";
 export default function AdminLayout({
   children,
 }: {
