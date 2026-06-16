@@ -5,16 +5,12 @@ import { useEffect, useState, useMemo } from "react";
 import {
   Info,
   CheckCircle2,
-  FileCode,
-  Terminal,
   HelpCircle,
-  ChevronRight,
   ArrowLeft,
   Brain,
   Sparkles,
   Code2,
   FileText,
-  Cpu,
   MessageSquarePlus,
   X,
   Paperclip,
@@ -27,7 +23,6 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import api from "@/lib/api";
 
 type AiTaskMode = "explain" | "fix";
-type AiProvider = "core" | "openai";
 
 const COLORS = {
   CRITICAL: {
@@ -73,6 +68,7 @@ export interface CodeSnippetRequest {
   framework: string;
   language: string;
 }
+
 export default function AdvancedScanReportPage() {
   const params = useParams();
   const router = useRouter();
@@ -84,24 +80,22 @@ export default function AdvancedScanReportPage() {
 
   // 선택된 이슈 관리를 위한 상태
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
-  const [activeIssueDetail, setActiveIssueDetail] = useState<any>(null); // API로 받아온 상세 정보
+  const [activeIssueDetail, setActiveIssueDetail] = useState<any>(null);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
 
   // 필터 및 검색 상태
   const [filterSeverity, setFilterSeverity] = useState("ALL");
   const [searchKeyword, setSearchKeyword] = useState("");
 
-  // AI 관련 상태
+  // 💡 수정됨: AI 관련 상태 (공급자 선택 로직 제거, 단일 상태로 관리)
   const [isAiLoading, setIsAiLoading] = useState<boolean>(false);
   const [aiActiveTab, setAiActiveTab] = useState<AiTaskMode>("explain");
-  const [selectedProvider, setSelectedProvider] = useState<AiProvider>("core");
-
   const [aiResponses, setAiResponses] = useState<{
-    core: { explain: string | null; fix: string | null };
-    openai: { explain: string | null; fix: string | null };
+    explain: string | null;
+    fix: string | null;
   }>({
-    core: { explain: null, fix: null },
-    openai: { explain: null, fix: null },
+    explain: null,
+    fix: null,
   });
 
   // 문의 관련 상태
@@ -145,7 +139,6 @@ export default function AdvancedScanReportPage() {
     }
   };
 
-  // 1. 초기 데이터 로드 (요약 및 리스트)
   useEffect(() => {
     if (!scanId) return;
     const fetchReport = async () => {
@@ -153,8 +146,6 @@ export default function AdvancedScanReportPage() {
         const response = await api.post("/scans/detail", { scanId });
         const data = response.data.data || response.data;
         setReportData(data);
-        console.log(data);
-        // 첫 번째 아이템 자동 선택
         if (data.vulnerabilities?.length > 0) {
           handleSelectIssue(data.vulnerabilities[0].vulnerabilityId);
         }
@@ -167,16 +158,13 @@ export default function AdvancedScanReportPage() {
     fetchReport();
   }, [scanId]);
 
-  // 2. 항목 클릭 시 상세 정보 단건 조회 API 호출
   const handleSelectIssue = async (vulnerabilityId: string) => {
-    if (selectedIssueId === vulnerabilityId) return; // 동일 항목 클릭 방지
+    if (selectedIssueId === vulnerabilityId) return;
 
     setSelectedIssueId(vulnerabilityId);
     setIsDetailLoading(true);
-    setAiResponses({
-      core: { explain: null, fix: null },
-      openai: { explain: null, fix: null },
-    });
+    // 💡 수정됨: AI 응답 초기화
+    setAiResponses({ explain: null, fix: null });
 
     try {
       const response = await api.post("/vulnerabilities/detail", {
@@ -186,7 +174,6 @@ export default function AdvancedScanReportPage() {
       setActiveIssueDetail(response.data.data || response.data);
     } catch (error) {
       console.error("취약점 상세 조회 실패:", error);
-      // API 실패 시 리스트의 기본 데이터라도 매핑 (임시 폴백)
       const fallback = reportData?.vulnerabilities?.find(
         (i: any) => i.vulnerabilityId === vulnerabilityId,
       );
@@ -196,7 +183,6 @@ export default function AdvancedScanReportPage() {
     }
   };
 
-  // 통계 데이터 산출 (차트용)
   const severityChartData = useMemo(() => {
     if (!reportData) return [];
     return [
@@ -219,7 +205,6 @@ export default function AdvancedScanReportPage() {
     ].filter((item) => item.value > 0);
   }, [reportData]);
 
-  // Top 5 취약점 유형 산출
   const top5Vulnerabilities = useMemo(() => {
     if (!reportData?.vulnerabilities) return [];
     const counts = reportData.vulnerabilities.reduce((acc: any, curr: any) => {
@@ -283,12 +268,12 @@ export default function AdvancedScanReportPage() {
     });
   };
 
+  // 💡 수정됨: LLM 내부 모델 삭제 및 OpenAI API만 사용하도록 단순화
   const handleExecuteAiAdvisory = async (task: AiTaskMode) => {
     if (!activeIssueDetail) return;
     setIsAiLoading(true);
     setAiActiveTab(task);
 
-    // 💡 타입을 명시하여 안전하게 페이로드 구성
     const requestPayload: CodeSnippetRequest = {
       seq: activeIssueDetail.seq ?? 0,
       vulnerability_type:
@@ -303,85 +288,34 @@ export default function AdvancedScanReportPage() {
     };
 
     try {
-      if (selectedProvider === "core") {
-        if (task === "explain") {
-          // 💡 api.ts에 있던 로직을 여기에 직접 작성
-          const response = await api.post(
-            "/analysis/llm-explain",
-            requestPayload,
-          );
-          const res = response.data;
-
-          setAiResponses((prev) => ({
-            ...prev,
-            core: {
-              ...prev.core,
-              explain:
-                res?.data?.content ||
-                res?.data?.explanation ||
-                res?.content ||
-                res?.explanation ||
-                "응답 데이터를 파싱할 수 없습니다.",
-            },
-          }));
-        } else {
-          // 💡 fix 로직 직접 호출
-          const response = await api.post("/analysis/llm-fix", requestPayload);
-          const res = response.data;
-
-          setAiResponses((prev) => ({
-            ...prev,
-            core: {
-              ...prev.core,
-              fix:
-                res?.data?.content ||
-                res?.data?.fix_code ||
-                res?.content ||
-                res?.fix_code ||
-                "응답 데이터를 파싱할 수 없습니다.",
-            },
-          }));
-        }
+      if (task === "explain") {
+        const response = await api.post(
+          "/analysis/ai-explanation",
+          requestPayload,
+        );
+        const res = response.data;
+        setAiResponses((prev) => ({
+          ...prev,
+          explain:
+            res?.data?.content ||
+            res?.data ||
+            res?.content ||
+            "응답 데이터를 파싱할 수 없습니다.",
+        }));
       } else {
-        if (task === "explain") {
-          // 💡 OpenAI explain 직접 호출
-          const response = await api.post(
-            "/analysis/ai-explanation",
-            requestPayload,
-          );
-          const res = response.data;
-
-          setAiResponses((prev) => ({
-            ...prev,
-            openai: {
-              ...prev.openai,
-              explain:
-                res?.data?.content ||
-                res?.data ||
-                res?.content ||
-                "응답 데이터를 파싱할 수 없습니다.",
-            },
-          }));
-        } else {
-          // 💡 OpenAI fix 직접 호출
-          const response = await api.post(
-            "/analysis/fix-suggestions",
-            requestPayload,
-          );
-          const res = response.data;
-
-          setAiResponses((prev) => ({
-            ...prev,
-            openai: {
-              ...prev.openai,
-              fix:
-                res?.data?.content ||
-                res?.data ||
-                res?.content ||
-                "응답 데이터를 파싱할 수 없습니다.",
-            },
-          }));
-        }
+        const response = await api.post(
+          "/analysis/fix-suggestions",
+          requestPayload,
+        );
+        const res = response.data;
+        setAiResponses((prev) => ({
+          ...prev,
+          fix:
+            res?.data?.content ||
+            res?.data ||
+            res?.content ||
+            "응답 데이터를 파싱할 수 없습니다.",
+        }));
       }
     } catch (error: any) {
       console.error("AI 진단 요청 실패:", error);
@@ -391,16 +325,14 @@ export default function AdvancedScanReportPage() {
     }
   };
 
-  // 리포트 다운로드 POST 방식 강제 다운로드 로직으로 변경 (CORS/Blob 대응)
   const handleDownloadJsonReport = async (scanId: string) => {
     try {
       const response = await api.post(
         "/scans/report",
         { scanId: scanId, format: "json", limit: 1000 },
-        { responseType: "blob" }, // 💡 서버가 byte[]를 쏘면 이걸로 한 번에 받음
+        { responseType: "blob" },
       );
 
-      // 💡 서버가 보낸 순수 Blob 데이터를 바로 파일로 만듭니다.
       const blob = new Blob([response.data], { type: "application/json" });
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -416,24 +348,22 @@ export default function AdvancedScanReportPage() {
     }
   };
 
+  // 💡 수정됨: 단일 상태 참조
   const currentActiveContent = useMemo(() => {
-    return aiResponses[selectedProvider][aiActiveTab];
-  }, [aiResponses, selectedProvider, aiActiveTab]);
+    return aiResponses[aiActiveTab];
+  }, [aiResponses, aiActiveTab]);
 
-  // 💡 reportData.vulnerabilities 로 필터링 적용
   const filteredIssues = useMemo(() => {
     if (!reportData?.vulnerabilities) return [];
     return reportData.vulnerabilities.filter((issue: any) => {
       const matchSev =
-        filterSeverity == "ALL" || issue.severityKo === filterSeverity;
+        filterSeverity === "ALL" || issue.severityKo === filterSeverity;
       const matchSearch =
         searchKeyword === "" || issue.typeKo.includes(searchKeyword);
-
       return matchSev && matchSearch;
     });
   }, [reportData, filterSeverity, searchKeyword]);
 
-  // 💡 vulnerabilityId 로 활성 이슈 찾기
   const activeIssue = useMemo(() => {
     if (!reportData?.vulnerabilities || !selectedIssueId) return null;
     return reportData.vulnerabilities.find(
@@ -454,18 +384,6 @@ export default function AdvancedScanReportPage() {
       </div>
     );
 
-  // 💡 동적 통계 데이터 생성 (Spring Boot ScanHistory 필드 기반)
-  const severityTotals = {
-    CRITICAL: reportData.issuesCritical || 0,
-    HIGH: reportData.issuesHigh || 0,
-    MEDIUM: reportData.issuesMedium || 0,
-    LOW: reportData.issuesLow || 0,
-  };
-  const totalIssuesCount = Object.values(severityTotals).reduce(
-    (acc, val) => acc + val,
-    0,
-  );
-
   return (
     <>
       <div className="h-[calc(100vh-2rem)] min-h-[800px] flex gap-4 p-4 max-w-[1920px] mx-auto bg-slate-100">
@@ -475,7 +393,6 @@ export default function AdvancedScanReportPage() {
         <div className="w-1/4 flex flex-col gap-4">
           {/* 상단 프로젝트 요약 */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col">
-            {/* 헤더 부분 */}
             <div className="mb-5">
               <h1 className="text-lg font-extrabold text-slate-900 mb-1 leading-tight">
                 {reportData?.target}
@@ -483,7 +400,6 @@ export default function AdvancedScanReportPage() {
               <p className="text-xs text-slate-400 font-mono">ID: {scanId}</p>
             </div>
 
-            {/* 스캔 개요 정보 */}
             <div className="space-y-3 mb-6">
               <div className="flex justify-between text-xs">
                 <span className="text-slate-500 font-medium">스캔 유형</span>
@@ -515,7 +431,6 @@ export default function AdvancedScanReportPage() {
               </div>
             </div>
 
-            {/* 액션 버튼 */}
             <div className="flex flex-col gap-2 mt-auto">
               <button
                 onClick={() => handleDownloadJsonReport(scanId)}
@@ -558,7 +473,6 @@ export default function AdvancedScanReportPage() {
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            {/* 위험도 차트 하단 범례 */}
             <div className="flex flex-wrap justify-center gap-3 mt-4">
               {severityChartData.map((d: any) => (
                 <button
@@ -582,8 +496,6 @@ export default function AdvancedScanReportPage() {
                   {d.name} ({d.value})
                 </button>
               ))}
-
-              {/* 전체 보기 버튼 (선택 사항) */}
               {filterSeverity !== "ALL" && (
                 <button
                   onClick={() => setFilterSeverity("ALL")}
@@ -623,7 +535,6 @@ export default function AdvancedScanReportPage() {
             2. 중앙 컬럼: 코드 뷰어 & 취약점 리스트 (w-2/4)
         ========================================== */}
         <div className="w-2/4 flex flex-col gap-4">
-          {/* 상단 코드 뷰어 영역 */}
           <div className="h-1/2 bg-slate-900 rounded-xl shadow-sm border border-slate-800 flex flex-col overflow-hidden relative">
             <div className="bg-slate-950 px-4 py-2 border-b border-slate-800 flex justify-between items-center">
               <span className="text-xs font-mono text-slate-400">
@@ -654,7 +565,6 @@ export default function AdvancedScanReportPage() {
               />
             </div>
           </div>
-          {/* 💡 1. 통합 컨트롤 바 (필터 & 검색) */}
           <div className="bg-slate-50 p-4 border-b border-slate-200 flex flex-wrap gap-4 items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="text-sm font-bold text-slate-700 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm">
@@ -686,7 +596,6 @@ export default function AdvancedScanReportPage() {
               />
             </div>
           </div>
-          {/* 하단 취약점 리스트 테이블 */}
           <div className="h-1/2 bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col overflow-hidden">
             <div className="overflow-auto flex-1">
               <table className="w-full text-left border-collapse table-fixed">
@@ -699,7 +608,6 @@ export default function AdvancedScanReportPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {/* 💡 reportData?.vulnerabilities 대신 필터링된 데이터 사용 */}
                   {filteredIssues.length > 0 ? (
                     filteredIssues.map((issue: any) => {
                       const isSelected =
@@ -763,13 +671,11 @@ export default function AdvancedScanReportPage() {
         <div className="w-1/4 flex flex-col gap-4 overflow-hidden h-full">
           {activeIssueDetail ? (
             <>
-              {/* 상단: 상세 정보 및 조치 가이드 */}
               <div className="flex-1 overflow-y-auto bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-4">
                 <h2 className="text-lg font-extrabold text-slate-900 border-b border-slate-100 pb-3">
                   {activeIssueDetail.typeKo}
                 </h2>
 
-                {/* 상세 정보들 */}
                 <div className="space-y-4">
                   <div>
                     <h4 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1 mb-2">
@@ -817,7 +723,6 @@ export default function AdvancedScanReportPage() {
                   </div>
                 </div>
 
-                {/* 조치 가이드 */}
                 {activeIssueDetail.fixDescriptionKo && (
                   <div className="bg-emerald-50 rounded-xl border border-emerald-100 p-4">
                     <h4 className="text-xs font-bold text-emerald-700 uppercase flex items-center gap-1 mb-2">
@@ -830,38 +735,20 @@ export default function AdvancedScanReportPage() {
                   </div>
                 )}
               </div>
-              {/* AI 보안 기능 영역 */}
+
+              {/* 💡 수정됨: AI 보안 어드바이저 영역 (제공자 선택 버튼 제거) */}
               <div className="h-[500px] flex flex-col bg-white rounded-xl shadow-sm border border-slate-200 p-5 space-y-3">
                 <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2 border-b border-slate-100 pb-3">
-                  <Brain className="w-4 h-4 text-purple-500" /> AI 보안
-                  어드바이저
+                  <Sparkles className="w-4 h-4 text-indigo-500" /> AI 보안
+                  어드바이저 (GPT-4o)
                 </h3>
 
-                {/* 1. 도구 선택 및 액션 버튼 (고정 영역) */}
                 <div className="flex-none">
-                  <div className="flex gap-1 bg-slate-100 p-0.5 rounded-lg text-[11px] font-bold w-fit border border-slate-200">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedProvider("core")}
-                      className={`px-2.5 py-1 rounded-md transition ${selectedProvider === "core" ? "bg-white text-slate-900 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
-                    >
-                      <Cpu className="w-3 h-3 inline mr-1" /> 분석기 내장 모델
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedProvider("openai")}
-                      className={`px-2.5 py-1 rounded-md transition ${selectedProvider === "openai" ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
-                    >
-                      <Sparkles className="w-3 h-3 inline mr-1 text-indigo-500" />{" "}
-                      OpenAI GPT-4o
-                    </button>
-                  </div>
-
-                  <div className="flex gap-2 mt-3">
+                  <div className="flex gap-2">
                     <button
                       onClick={() => handleExecuteAiAdvisory("explain")}
                       disabled={isAiLoading}
-                      className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-bold py-2 rounded-lg border transition shadow-sm ${aiActiveTab === "explain" && currentActiveContent ? "bg-purple-600 text-white border-purple-600" : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"}`}
+                      className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-bold py-2 rounded-lg border transition shadow-sm ${aiActiveTab === "explain" && currentActiveContent ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"}`}
                     >
                       <FileText className="w-3.5 h-3.5" /> 원인 심층 진단
                     </button>
@@ -875,17 +762,11 @@ export default function AdvancedScanReportPage() {
                   </div>
                 </div>
 
-                {/* 2. AI 결과 렌더링 영역 (flex-1으로 유연하게 확보 + overflow-y-auto로 스크롤 활성화) */}
                 {(isAiLoading || currentActiveContent) && (
-                  <div
-                    className={`flex-1 flex flex-col min-h-0 border rounded-2xl p-4 shadow-sm bg-gradient-to-br ${selectedProvider === "openai" ? "from-indigo-50/50 to-purple-50/30 border-indigo-100" : "from-purple-50/50 to-slate-50/30 border-purple-100"}`}
-                  >
-                    {/* 타이틀 영역 */}
+                  <div className="flex-1 flex flex-col min-h-0 border rounded-2xl p-4 shadow-sm bg-gradient-to-br from-indigo-50/50 to-purple-50/30 border-indigo-100">
                     <div className="flex-none flex items-center justify-between border-b pb-2 border-slate-100/50 mb-3">
                       <div className="flex items-center gap-2 font-extrabold text-sm text-slate-800">
-                        <Brain
-                          className={`w-4 h-4 ${selectedProvider === "openai" ? "text-indigo-600" : "text-purple-600"}`}
-                        />
+                        <Sparkles className="w-4 h-4 text-indigo-600" />
                         <span>
                           {aiActiveTab === "explain"
                             ? "진단 브리핑"
@@ -894,13 +775,10 @@ export default function AdvancedScanReportPage() {
                       </div>
                     </div>
 
-                    {/* 결과 콘텐츠 영역 (여기서 스크롤 발생) */}
                     <div className="flex-1 overflow-y-auto bg-white/90 border border-white p-4 rounded-xl shadow-inner font-sans">
                       {isAiLoading ? (
                         <div className="flex flex-col items-center justify-center gap-2 py-6 text-slate-400 text-xs">
-                          <div
-                            className={`h-6 w-6 animate-spin rounded-full border-2 border-t-transparent ${selectedProvider === "openai" ? "border-indigo-600" : "border-purple-600"}`}
-                          />
+                          <div className="h-6 w-6 animate-spin rounded-full border-2 border-t-transparent border-indigo-600" />
                           <p className="font-medium animate-pulse">
                             분석 중입니다...
                           </p>
