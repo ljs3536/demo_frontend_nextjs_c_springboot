@@ -170,6 +170,7 @@ export default function AdvancedScanReportPage() {
       const response = await api.post("/vulnerabilities/detail", {
         scanId: scanId,
         vulnerabilityId: vulnerabilityId,
+        codeYn: true,
       });
       setActiveIssueDetail(response.data.data || response.data);
     } catch (error) {
@@ -559,7 +560,7 @@ export default function AdvancedScanReportPage() {
                 readOnly
                 className="w-full h-full bg-transparent text-slate-300 font-mono text-sm resize-none outline-none"
                 value={
-                  activeIssueDetail?.codeSnippet ||
+                  activeIssueDetail?.code ||
                   "// 소스 코드 영역입니다. 하단 리스트에서 취약점을 선택하세요."
                 }
               />
